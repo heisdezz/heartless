@@ -71,24 +71,26 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
   - 2026-11-14T01:42:00Z: Added `internal/app/app.go` (`Services` with DB + workspace/environment SQLite repos, `SetDefaultDBPath`/`Open` using `internal/storage/sqlite`). Wired `main.go` to open DB at `<UserConfigDir>/heartless/heartless.db`, pass services into `screens.App`, and close DB on exit. Scoped bootstrap/wiring only (no full lifecycle refactor). Targeted builds passed for touched packages; `go build ./...` still blocked by unrelated pre-existing `internal/domain/variable-resolution` errors.
 
 ### P0-DOMAIN-MODELS: Core domain entities and IDs
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:14:30Z
 - Depends on: none
 - Allowed paths/scope: `internal/domain/**` (new), shared ID/type helpers
 - Acceptance: Initial models for workspace, collection/folder, request, environment/variable, response/execution result, history entry; no GUI/SQLite deps in domain.
 - Notes:
-  - 
+  - 2026-11-14T02:13:00Z: Claimed (next non-UI task). Implementing foundational domain entities/IDs for workspace, environment, variable, request, response/execution, history with shared ID helper. Existing workspace/env/var models will be normalized; no GUI/SQLite deps.
+  - 2026-11-14T02:14:30Z: Added `internal/domain/id/id.go` (prefixed ID generator). Normalized `workspace`, `environment`, `variable` models with IDs/timestamps and compat constructors. Added initial entities: `collection` (Collection, Folder), `request` (Kind, saved request definition), `response` (Response, ExecutionResult), `history` (Entry). No GUI/SQLite deps. Verified: `go build ./internal/domain/... ./internal/services/...` and `go build ./internal/app ./internal/screens ./internal/storage/sqlite/... .` passed.
 
 ### P0-SERVICE-INTERFACES: Application service and repository interfaces
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:19:30Z
 - Depends on: P0-DOMAIN-MODELS
 - Allowed paths/scope: `internal/services/**` (new interfaces/contracts), `internal/events/**` (new)
 - Acceptance: Service/repository/event contracts defined for core workflows; GUI-facing interfaces documented; typed event definitions for key state changes.
 - Notes:
-  - 
+  - 2026-11-14T02:18:00Z: Claimed; implementing service/repository interfaces and typed event contracts in `internal/services/**` and `internal/events/**`.
+  - 2026-11-14T02:19:30Z: Added typed event contracts/bus interfaces in `internal/events/events.go` (workspace/env/variable/request execution/history + protocol lifecycle event types/payloads). Added service/repository interface contracts in `internal/services/workspace`, `environment`, `variable`, `collection`, `request`, `history` (`service.go` per package) covering core CRUD/list, active-env state hooks, execution/cancel, and history record/query/clear workflows. Removed prior concrete in-memory/SQLite-coupled service implementations from `internal/services/*_service` to keep this scope contract-focused. Verified: `go build ./internal/events ./internal/services/workspace ./internal/services/environment ./internal/services/variable ./internal/services/collection ./internal/services/request ./internal/services/history` passed. `go build ./internal/domain/...` still fails on pre-existing unrelated `internal/domain/auth` (missing imports) outside scope. GUI-facing implementation wiring/adapters pending.
 
 ### P0-STORAGE-SQLITE: SQLite storage skeleton, migrations, repositories
 - Status: review
@@ -112,26 +114,28 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
   - 
 
 ### P0-LOGGING-OBS: Logging and redaction baseline
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:32:30Z
 - Depends on: P0-APP-BOOTSTRAP
 - Allowed paths/scope: `internal/config/**`, logging/observability helpers, service instrumentation points
 - Acceptance: `log/slog` baseline configured; redaction policy/helpers for secrets/tokens; structured error categories scaffolded.
 - Notes:
-  - 
+  - 2026-11-14T02:31:00Z: Claimed (next non-GUI task). Implementing slog baseline, redaction helpers, and structured error categories in `internal/config`/logging packages.
+  - 2026-11-14T02:32:30Z: Added `internal/logging` (redacting `slog.Handler` wrapper, sensitive key/pattern detection, `Config`/`New`/`SetupDefault`), `internal/config/logging.go` (`Logging` config + `SetupLogging`), and `internal/observability/errors` (categorized structured errors with wrap/fields/category helpers). Added tests for redaction and error categorization. `go test ./internal/logging ./internal/observability/errors ./internal/config` passed. App bootstrap/instrumentation wiring not yet applied.
 
 ## Phase 1 — HTTP Core
 
 ### P1-HTTP-DOMAIN: HTTP request/response domain and validation
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:34:30Z
 - Depends on: P0-DOMAIN-MODELS
 - Allowed paths/scope: `internal/domain/request/**`, `internal/domain/response/**`, validation packages
 - Acceptance: HTTP method/url/headers/params/body/settings modeled; validation errors structured and testable.
 - Notes:
-  - 
+  - 2026-11-14T02:33:30Z: Claimed next non-GUI task; extending request/response domain with HTTP-specific models/settings and structured validation.
+  - 2026-11-14T02:34:30Z: Added HTTP-specific request models/settings (`internal/domain/request/http.go`: methods/body types/settings/defaults, `HTTPRequest`, `NewHTTP`, `NormalizeHTTP`) and structured validation (`internal/domain/request/validate.go`: `ValidationError`/`ValidationErrors`, `ValidateHTTP` for workspace/name/kind/method/url/scheme/settings). Added response HTTP metadata/timing helpers (`internal/domain/response/http.go`: `Timing`, `HTTPMetadata`, `NewHTTPResponse`). Tests: `validate_test.go`, `http_test.go`. `go test ./internal/domain/request ./internal/domain/response` and targeted builds passed. Transport/execution pipeline integration pending (P1-VARIABLE-RESOLUTION, P1-HTTP-TRANSPORT).
 
 ### P1-VARIABLE-RESOLUTION: Variable interpolation and resolution pipeline
 - Status: todo
@@ -254,6 +258,18 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 - Notes:
   - 2026-11-14: Created this document.
 
+## Phase 6 — Interoperability
+
+### P6-IMPORTERS: Collection import pipeline (non-UI)
+- Status: in_progress
+- Owner: mimo
+- Updated: 2026-11-14T02:33:00Z
+- Depends on: P0-DOMAIN-MODELS, P0-SERVICE-INTERFACES, P0-STORAGE-SQLITE
+- Allowed paths/scope: `internal/importer/**` (new), `internal/services/importer/**` (new), `internal/storage/sqlite/collection/**`, `internal/storage/sqlite/migrate.go`, tests under those paths
+- Acceptance: Postman (v2.0/v2.1) and Insomnia (v4/v5) sources detected, parsed into a normalized draft, validated, conflict-checked, and persisted transactionally as collections/folders/requests (including headers/params) into a target workspace; unsupported/conflicting data reported as issues; no GUI dependencies; targeted `go build`/`go test`/`go vet` pass.
+- Notes:
+  - 2026-11-14T02:33:00Z: Claimed next non-UI task. Scope linkage recorded per rule 3 before touching P0-STORAGE-SQLITE-owned files: `internal/storage/sqlite/migrate.go` (register migration v4 adding `requests.headers`/`requests.params`) and `internal/storage/sqlite/collection/repository.go` (persist headers/params, extract save helpers, add atomic `ImportBatch`). Additions limited to import persistence; existing method signatures unchanged.
+
 ## Activity Log (append-only)
 
 Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: message`
@@ -278,3 +294,16 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T01:42:00Z [kilo] UI-ENV-AUTH: Linked workspace/environment create/select UI to SQLite repos (workspace/env persistence + workspace-scoped env loading); targeted build passed, review.
 - 2026-11-14T01:46:30Z [kilo] UI-ENV-AUTH: Resumed to implement workspace value/variable creation linked to DB.
 - 2026-11-14T01:48:30Z [kilo] UI-ENV-AUTH: Added workspace variable creation/list UI (`/variables`) persisted to SQLite; updated app/domain/storage for variable linkage; targeted build/tests passed, review.
+- 2026-11-14T02:04:30Z [kilo] P0-STORAGE-SQLITE: Claimed (in_progress) to persist active environment per workspace.
+- 2026-11-14T02:04:30Z [kilo] UI-ENV-AUTH: Claimed (in_progress) to wire active environment persistence to disk.
+- 2026-11-14T02:05:00Z [kilo] P0-STORAGE-SQLITE: Added migration v2 `workspace_state` and workspace repo active-env get/set methods (in progress).
+- 2026-11-14T02:06:30Z [kilo] P0-STORAGE-SQLITE: Completed active-environment state persistence schema/repo support; targeted build/tests passed, review.
+- 2026-11-14T02:06:30Z [kilo] UI-ENV-AUTH: Wired active environment persistence/restoration per workspace across UI flows; targeted build passed, review.
+- 2026-11-14T02:13:00Z [kilo] P0-DOMAIN-MODELS: Claimed next non-UI task; starting core domain entities/ID helper implementation in `internal/domain/**`.
+- 2026-11-14T02:14:30Z [kilo] P0-DOMAIN-MODELS: Implemented initial domain entities (workspace/env/var/collection/folder/request/response/execution/history) and shared ID helper; targeted builds passed, review.
+- 2026-11-14T02:18:00Z [kilo] P0-SERVICE-INTERFACES: Claimed; implementing service/repository and event contracts.
+- 2026-11-14T02:19:30Z [kilo] P0-SERVICE-INTERFACES: Added `internal/events` and core service/repository interface contracts under `internal/services/*`; targeted builds passed, review.
+- 2026-11-14T02:31:00Z [kilo] P0-LOGGING-OBS: Claimed next non-GUI task; implementing logging/redaction/error baseline.
+- 2026-11-14T02:32:30Z [kilo] P0-LOGGING-OBS: Implemented slog baseline + redaction helpers and structured error categories with tests; `go test ./internal/logging ./internal/observability/errors ./internal/config` passed, review.
+- 2026-11-14T02:33:00Z [mimo] P6-IMPORTERS: Claimed non-UI import pipeline (Postman/Insomnia importers + transactional collection import service); recorded storage linkage scope in task notes.
+- 2026-11-14T02:33:30Z [kilo] P1-HTTP-DOMAIN: Claimed next non-GUI task; implementing HTTP request/response domain models and validation.
