@@ -164,13 +164,14 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 ### P1-HISTORY: Execution history persistence and retention hooks
 - Status: review
 - Owner: kilo
-- Updated: 2026-11-14T02:44:00Z
+- Updated: 2026-11-14T02:52:00Z
 - Depends on: P0-STORAGE-SQLITE, P1-HTTP-TRANSPORT
 - Allowed paths/scope: `internal/domain/history/**`, `internal/services/history/**`, `internal/storage/**`, `migrations/**`
 - Acceptance: History records persisted separately from saved requests; retention/config hooks; large-body strategy documented/implemented per scope.
 - Notes:
   - 2026-11-14T02:42:00Z: Claimed; implementing history migration, SQLite repository, and history service hooks (record/query/clear/retention basics).
   - 2026-11-14T02:44:00Z: Added migration v4 `execution_history` (+ indexes) in `internal/storage/sqlite/migrate.go` and `migrations/0001_initial_schema.sql`. Implemented SQLite history repo `internal/storage/sqlite/history/repository.go` (save/get/list/delete/clear/prune by workspace/limit) and service impl `internal/services/history/service_impl.go` with retention config hook on record. Added `repository_test.go`. `go test ./internal/storage/sqlite/history ./internal/services/history` passed. History stores execution metadata separately from saved requests; large response bodies not persisted in this pass (metadata-only strategy). Executor recording wiring pending.
+  - 2026-11-14T02:52:00Z: Added `internal/services/history/service_impl_test.go` (record+retention via SQLite store). Executor history hook/repo `Record` alias and app wiring done in prior commits; `go test ./internal/services/history ./internal/storage/sqlite/history` passed. Large-body offload/storage policy still minimal (metadata-only).
 
 ## GUI / UI Workstreams
 
