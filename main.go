@@ -1,36 +1,45 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/lobehub/lobe-mygo/pkg/action"
 	"github.com/lobehub/lobe-mygo/pkg/theme"
+
+	"heartless/internal/app"
+	"heartless/internal/screens"
 )
 
-var count int
-
-func view(c *ui.Context) {
-
-	theme.Apply(c)
-	bar := c.TitleBar()
-	ui.Row(c).Height(max(bar.Height, 32)).Padding(0, bar.Right+12, 0, bar.Left+12).DragWindow().Children(func() {
-		ui.Text(c, "Inbox").Bold()
-	})
-	ui.Column(c).Fill().Center().Gap(12).Background(theme.TokensOf(c).BgContainer).Children(func() {
-		if action.Button(c, "Hello Lobe", action.ButtonProps{Variant: action.Primary}).Clicked() {
-			count++
-		}
-		ui.Text(c, fmt.Sprintf("Clicked %d times", count))
-	})
-}
-
 func main() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	dbPath := filepath.Join(configDir, "heartless", "heartless.db")
+	app.SetDefaultDBPath(dbPath)
+
+	services, err := app.Open(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		_ = services.DB.Close()
+	}()
 
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{Title: "Hello Lobe", Width: 480, Height: 320, Content: ui.View(view)})
+		mygo.NewWindow(mygo.WindowOptions{
+			Title:  "Heartless",
+			Width:  1200,
+			Height: 800,
+			Content: ui.View(func(c *ui.Context) {
+				theme.Apply(c)
+				screens.App(c, services)
+			}),
+		})
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
