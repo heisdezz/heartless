@@ -19,17 +19,18 @@ import (
 
 // Context-menu keys used by the collection tree.
 const (
-	menuFolderSettings = "folder-settings"
-	menuSendAll        = "send-all"
-	menuRename         = "rename"
-	menuDuplicate      = "duplicate"
-	menuDelete         = "delete"
-	menuHTTP           = "new-http"
-	menuGraphQL        = "new-graphql"
-	menuGRPC           = "new-grpc"
-	menuWebSocket      = "new-websocket"
-	menuFolder         = "new-folder"
-	menuNewCollection  = "new-collection"
+	menuFolderSettings   = "folder-settings"
+	menuSendAll          = "send-all"
+	menuRename           = "rename"
+	menuDuplicate        = "duplicate"
+	menuDelete           = "delete"
+	menuHTTP             = "new-http"
+	menuGraphQL          = "new-graphql"
+	menuGRPC             = "new-grpc"
+	menuWebSocket        = "new-websocket"
+	menuFolder           = "new-folder"
+	menuNewCollection    = "new-collection"
+	menuImportCollection = "import-collection"
 )
 
 var rowTransition = ui.ElementTransition{Duration: 120 * time.Millisecond, Colors: true}
@@ -54,6 +55,7 @@ var treeMenu = []overlay.MenuItem{
 // emptyMenu is the context menu shown on the tree's empty area.
 var emptyMenu = []overlay.MenuItem{
 	{Key: menuNewCollection, Label: "New Collection", Icon: lucide.Plus()},
+	{Key: menuImportCollection, Label: "Import Collection", Icon: lucide.Download()},
 	{Divider: true},
 	{Key: menuHTTP, Label: "HTTP", Icon: lucide.Plus()},
 	{Key: menuGraphQL, Label: "GraphQL", Icon: lucide.Plus()},
@@ -113,7 +115,7 @@ func sidebar(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Serv
 // treeBody draws the tree, filling the nav so right-clicking the empty area
 // offers to create things.
 func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Services, nav layout.SideNavState) {
-	body := ui.Column(c).Grow(1).AlignSelf(ui.Stretch).Opacity(1 - nav.Collapse)
+	body := ui.Column(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).Opacity(1 - nav.Collapse)
 	body.Padding(0, 0, 8, 0)
 	if st.workspaceID == "" {
 		body.Children(func() {
@@ -124,21 +126,31 @@ func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Ser
 
 	query := strings.ToLower(strings.TrimSpace(st.searchQuery))
 	cols := st.filteredCollections(query)
-	if len(cols) == 0 && query == "" {
-		body.Children(func() {
-			ui.Text(c, "No collections yet — right-click here to add one.").FontSize(13).
-				TextColor(tk.TextTertiary).Padding(10, 0)
-		})
-	}
+
+	var menuTarget ui.Element
 	body.Children(func() {
-		for i := range cols {
-			collectionRow(c, tk, st, services, &cols[i], query)
-		}
+		scroll := ui.Scroll(c).Grow(1).Basis(0).AlignSelf(ui.Stretch)
+		menuTarget = scroll
+		scroll.Children(func() {
+			ui.Column(c).Grow(1).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
+				if len(cols) == 0 && query == "" {
+					ui.Text(c, "No collections yet — right-click here to add or import one.").FontSize(13).
+						TextColor(tk.TextTertiary).Padding(10, 0)
+				}
+				for i := range cols {
+					collectionRow(c, tk, st, services, &cols[i], query)
+				}
+				// Fills remaining space so the context menu is easy to trigger when empty/sparse.
+				ui.Box(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).MinHeight(120)
+			})
+		})
 	})
 
-	switch chosen := overlay.ContextMenu(c, body, overlay.DropdownMenuProps{Items: emptyMenu}); chosen {
+	switch chosen := overlay.ContextMenu(c, menuTarget, overlay.DropdownMenuProps{Items: emptyMenu}); chosen {
 	case menuNewCollection:
 		st.createCollection(services)
+	case menuImportCollection:
+		st.openImportCollection()
 	case menuHTTP, menuGraphQL, menuGRPC, menuWebSocket, menuFolder:
 		st.applyEmptyMenu(services, chosen)
 	}
@@ -147,7 +159,7 @@ func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Ser
 // collectionRow renders a collection and, when expanded, its folders and
 // requests. Right-clicking it opens the folder menu.
 func collectionRow(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, col *domaincol.Collection, query string) {
-	open := st.isExpanded(col.ID) || query != ""
+	open := st.isExpanded(col.ID)
 	row := treeRow(c, tk, "col:"+col.ID, col.Name, 0, open, lucide.Folder())
 	if row.Clicked() {
 		st.toggleExpanded(col.ID)
@@ -161,18 +173,22 @@ func collectionRow(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 	}
 	for _, f := range st.childFolders(col.ID, "") {
 		f := f
-		folderRowNested(c, tk, st, services, &f, 1, query)
+		if query == "" || st.folderMatchesQuery(&f, query) {
+			folderRowNested(c, tk, st, services, &f, 1, query)
+		}
 	}
 	for _, r := range st.childRequests(col.ID, "") {
 		r := r
-		requestRowAt(c, tk, st, services, &r, 1)
+		if query == "" || requestMatchesQuery(&r, query) {
+			requestRowAt(c, tk, st, services, &r, 1)
+		}
 	}
 }
 
 // folderRowNested renders a folder at a fixed depth and, when expanded, its
 // nested children.
 func folderRowNested(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, folder *domaincol.Folder, depth int, query string) {
-	open := st.isExpanded(folder.ID) || query != ""
+	open := st.isExpanded(folder.ID)
 	row := treeRow(c, tk, "fld:"+folder.ID, folder.Name, depth, open, lucide.Folder())
 	if row.Clicked() {
 		st.toggleExpanded(folder.ID)
@@ -186,11 +202,15 @@ func folderRowNested(c *ui.Context, tk *theme.Tokens, st *shellState, services *
 	}
 	for _, f := range st.childFolders(folder.CollectionID, folder.ID) {
 		f := f
-		folderRowNested(c, tk, st, services, &f, depth+1, query)
+		if query == "" || st.folderMatchesQuery(&f, query) {
+			folderRowNested(c, tk, st, services, &f, depth+1, query)
+		}
 	}
 	for _, r := range st.childRequests(folder.CollectionID, folder.ID) {
 		r := r
-		requestRowAt(c, tk, st, services, &r, depth+1)
+		if query == "" || requestMatchesQuery(&r, query) {
+			requestRowAt(c, tk, st, services, &r, depth+1)
+		}
 	}
 }
 
@@ -303,19 +323,65 @@ func methodColor(tk *theme.Tokens, method string) ui.Color {
 	}
 }
 
-// filteredCollections returns the collections whose name matches query, or
-// every collection when query is empty.
+// filteredCollections returns collections matching query by collection, folder, or request fields.
 func (s *shellState) filteredCollections(query string) []domaincol.Collection {
 	if query == "" {
 		return s.collections
 	}
 	var out []domaincol.Collection
 	for _, col := range s.collections {
-		if strings.Contains(strings.ToLower(col.Name), query) {
+		if matchesQuery(col.Name, query) || s.collectionHasQueryMatch(col.ID, query) {
 			out = append(out, col)
 		}
 	}
 	return out
+}
+
+func (s *shellState) collectionHasQueryMatch(colID, query string) bool {
+	for _, f := range s.folders {
+		if f.CollectionID == colID && s.folderMatchesQuery(&f, query) {
+			return true
+		}
+	}
+	for _, r := range s.requests {
+		if r.CollectionID == colID && requestMatchesQuery(&r, query) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *shellState) folderMatchesQuery(folder *domaincol.Folder, query string) bool {
+	if folder == nil {
+		return false
+	}
+	if matchesQuery(folder.Name, query) {
+		return true
+	}
+	for _, f := range s.childFolders(folder.CollectionID, folder.ID) {
+		f := f
+		if s.folderMatchesQuery(&f, query) {
+			return true
+		}
+	}
+	for _, r := range s.childRequests(folder.CollectionID, folder.ID) {
+		r := r
+		if requestMatchesQuery(&r, query) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestMatchesQuery(req *domainreq.Request, query string) bool {
+	if req == nil {
+		return false
+	}
+	return matchesQuery(req.Name, query) || matchesQuery(req.Method, query) || matchesQuery(req.URL, query)
+}
+
+func matchesQuery(value, query string) bool {
+	return strings.Contains(strings.ToLower(value), query)
 }
 
 // applyEmptyMenu runs a choice from the empty-area menu, creating the item

@@ -2,7 +2,9 @@ package request
 
 import (
 	"context"
+	"encoding/base64"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +68,10 @@ func (e *Executor) Execute(ctx context.Context, req *domain.Request) (*response.
 		for k, v := range resolved.Params {
 			resolved.Params[k] = e.resolver.Resolve(ctx, v)
 		}
+		resolved.Auth = resolveAuth(ctx, resolved.Auth, e.resolver)
 	}
+
+	applyAuth(resolved)
 
 	settings := e.settings
 	if settings.Timeout == 0 {
@@ -166,6 +171,46 @@ func cloneRequest(r *domain.Request) *domain.Request {
 }
 
 type simpleErr string
+
+// resolveAuth resolves {{var}} placeholders in an auth's credentials so a token
+// can come from the active environment.
+func resolveAuth(ctx context.Context, a domain.Auth, r *varres.Resolver) domain.Auth {
+	a.Token = r.Resolve(ctx, a.Token)
+	a.Username = r.Resolve(ctx, a.Username)
+	a.Password = r.Resolve(ctx, a.Password)
+	a.Key = r.Resolve(ctx, a.Key)
+	return a
+}
+
+// applyAuth adds the request's credentials to its headers. Only auth types the
+// transport supports set a header; the rest leave the request unchanged.
+func applyAuth(r *domain.Request) {
+	if r == nil {
+		return
+	}
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	switch r.Auth.Type {
+	case domain.AuthBearer:
+		if strings.TrimSpace(r.Auth.Token) != "" {
+			r.Headers["Authorization"] = "Bearer " + strings.TrimSpace(r.Auth.Token)
+		}
+	case domain.AuthBasic:
+		if r.Auth.Username != "" || r.Auth.Password != "" {
+			token := base64.StdEncoding.EncodeToString([]byte(r.Auth.Username + ":" + r.Auth.Password))
+			r.Headers["Authorization"] = "Basic " + token
+		}
+	case domain.AuthAPIKey:
+		header := r.Auth.Header
+		if header == "" {
+			header = "X-API-Key"
+		}
+		if r.Auth.Key != "" {
+			r.Headers[header] = r.Auth.Prefix + r.Auth.Key
+		}
+	}
+}
 
 func (e simpleErr) Error() string { return string(e) }
 

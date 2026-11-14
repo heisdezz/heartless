@@ -163,6 +163,36 @@ ALTER TABLE execution_history ADD COLUMN content_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE execution_history ADD COLUMN size INTEGER NOT NULL DEFAULT 0;
 `,
 	},
+	{
+		version: 7,
+		name:    "request_auth",
+		up: `
+ALTER TABLE requests ADD COLUMN auth TEXT NOT NULL DEFAULT '{}';
+`,
+	},
+	{
+		version: 8,
+		name:    "workspace_defaults",
+		up: `
+ALTER TABLE workspaces ADD COLUMN default_headers TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE workspaces ADD COLUMN default_auth TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE workspaces ADD COLUMN default_tls_insecure INTEGER NOT NULL DEFAULT 0;
+`,
+	},
+	{
+		version: 9,
+		name:    "app_settings",
+		up: `
+CREATE TABLE IF NOT EXISTS app_settings (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	theme TEXT NOT NULL DEFAULT '{}',
+	interface TEXT NOT NULL DEFAULT '{}',
+	plugins TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.

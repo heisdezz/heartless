@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,14 +30,19 @@ func (s *shellState) requestStateFor(req domainreq.Request) *requestState {
 	rs, ok := s.requestStates[req.ID]
 	if !ok {
 		rs = &requestState{
-			Method:  req.Method,
-			URL:     req.URL,
-			Body:    req.Body,
-			Params:  paramsToRows(req.Params),
-			Headers: paramsToRows(req.Headers),
+			Method:   req.Method,
+			URL:      req.URL,
+			Body:     req.Body,
+			BodyType: string(req.BodyType),
+			Params:   paramsToRows(req.Params),
+			Headers:  paramsToRows(req.Headers),
+			Auth:     req.Auth,
 		}
 		if rs.Method == "" {
 			rs.Method = "GET"
+		}
+		if rs.BodyType == "" {
+			rs.BodyType = string(domainreq.BodyNone)
 		}
 		s.requestStates[req.ID] = rs
 	}
@@ -73,10 +79,63 @@ func (rs *requestState) buildDomainRequest(req domainreq.Request) *domainreq.Req
 	out.Method = rs.Method
 	out.URL = strings.TrimSpace(rs.URL)
 	out.Body = rs.Body
+	out.BodyType = rs.BodyType
+	out.Auth = rs.Auth
 	out.Params = rowsToParams(rs.Params)
 	out.Headers = rowsToParams(rs.Headers)
+	applyBodyType(&out)
 	domainreq.NormalizeHTTP(&out)
 	return &out
+}
+
+// applyBodyType turns the editor's body type into the body and headers actually
+// sent: form and multipart rows are encoded, GraphQL wraps its variables, JSON
+// objects written as JavaScript get converted to strict JSON, and the matching
+// Content-Type is set unless the user already set one.
+func applyBodyType(r *domainreq.Request) {
+	switch r.BodyType {
+	case string(domainreq.BodyNone):
+		r.Body = ""
+	case string(domainreq.BodyJSON):
+		r.Body = jsObjectToJSON(r.Body)
+		setContentType(r, "application/json")
+	case string(domainreq.BodyText):
+		setContentType(r, "text/plain")
+	case string(domainreq.BodyGraphQL):
+		setContentType(r, "application/json")
+	case string(domainreq.BodyForm):
+		r.Body = encodeForm(r.Params)
+		setContentType(r, "application/x-www-form-urlencoded")
+	case string(domainreq.BodyMultipart):
+		setContentType(r, "multipart/form-data")
+	case string(domainreq.BodyBinary):
+		// Body already holds the raw text; let the user's content type stand.
+	}
+}
+
+// setContentType sets Content-Type from the body type unless the caller set one.
+func setContentType(r *domainreq.Request, ct string) {
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	for k := range r.Headers {
+		if strings.EqualFold(k, "Content-Type") && strings.TrimSpace(r.Headers[k]) != "" {
+			return
+		}
+	}
+	r.Headers["Content-Type"] = ct
+}
+
+// encodeForm builds a query-string body from the enabled rows.
+func encodeForm(params map[string]string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	v := url.Values{}
+	for k, val := range params {
+		v.Set(k, val)
+	}
+	return v.Encode()
 }
 
 // send runs the request in the background. The pane only shows this request's

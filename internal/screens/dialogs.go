@@ -92,8 +92,9 @@ func createWorkspaceModal(c *ui.Context, st *shellState, services *app.Services)
 	}) {
 		name := strings.TrimSpace(st.newWorkspaceName)
 		if name != "" && services != nil {
+			// Keep the generated unique ID: a local counter would repeat across
+			// launches and overwrite existing rows on save.
 			ws := domainws.NewWorkspace(name)
-			ws.ID = st.localID("ws")
 			if err := services.Workspaces.Save(context.Background(), ws); err != nil {
 				st.err = err.Error()
 			} else {
@@ -131,5 +132,61 @@ func createEnvironmentModal(c *ui.Context, st *shellState, services *app.Service
 	}) {
 		st.createEnvironment(services)
 		st.showCreateEnv = false
+	}
+}
+
+// importCollectionModal imports a collection from a URL or picked/dropped file.
+func importCollectionModal(c *ui.Context, st *shellState, services *app.Services) {
+	if feedback.Modal(c, &st.showImportCollection, feedback.ModalProps{
+		Title:      "Import collection",
+		Width:      560,
+		NoFooter:   true,
+		CancelText: "Close",
+	}, func() {
+		tk := theme.TokensOf(c)
+		ui.Column(c).Gap(12).AlignSelf(ui.Stretch).Children(func() {
+			if st.importCollectionBusy {
+				ui.Text(c, "Importing…").TextColor(tk.TextSecondary)
+			}
+			ui.Text(c, "Import from URL").FontSize(13).TextColor(tk.TextSecondary)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				field.Input(c, &st.importCollectionURL, field.InputProps{Placeholder: "https://…/collection.json"}).Grow(1).Basis(0).MinWidth(0)
+				disabled := st.importCollectionBusy || strings.TrimSpace(st.importCollectionURL) == "" || st.workspaceID == ""
+				btn := action.Button(c, "Import URL", action.ButtonProps{Variant: action.Primary}).Shrink(0)
+				if disabled {
+					btn.Disabled(true).Opacity(0.5)
+				}
+				if btn.Clicked() && !disabled {
+					st.importCollectionFromURL(services, strings.TrimSpace(st.importCollectionURL))
+				}
+			})
+
+			ui.Box(c).Height(1).AlignSelf(ui.Stretch).Background(tk.BorderSecondary)
+
+			ui.Text(c, "Import from file").FontSize(13).TextColor(tk.TextSecondary)
+			field.Upload(c, field.UploadProps{
+				Accept:      ".json,application/json,text/json",
+				Multiple:    false,
+				Dragger:     true,
+				Title:       "Click or drag a collection file here",
+				Description: "Supports Postman and Insomnia JSON exports",
+				Disabled:    st.importCollectionBusy || st.workspaceID == "",
+				OnFiles: func(files []field.File) {
+					if len(files) == 0 {
+						return
+					}
+					st.importCollectionFromFile(services, files[0])
+				},
+			}, nil)
+
+			if st.importCollectionErr != "" {
+				ui.Text(c, st.importCollectionErr).FontSize(12).TextColor(tk.Error)
+			}
+			if st.workspaceID == "" {
+				ui.Text(c, "Select a workspace first.").FontSize(12).TextColor(tk.TextTertiary)
+			}
+		})
+	}) {
+		// NoFooter: no default actions.
 	}
 }

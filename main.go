@@ -8,9 +8,9 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/lobehub/lobe-mygo/pkg/theme"
 
 	"heartless/internal/app"
+	"heartless/internal/config"
 	"heartless/internal/screens"
 )
 
@@ -31,12 +31,18 @@ func main() {
 	}()
 
 	mygo.App.WhenReady(func() {
+		// Apply the saved theme before the first frame.
+		appTheme := config.DefaultApplicationSettings()
+		if saved, err := services.Settings.Load(context.Background()); err == nil {
+			appTheme = saved
+		}
+		themeCfg := screens.ThemeConfig(appTheme)
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:  "Heartless",
 			Width:  1200,
 			Height: 800,
 			Content: ui.View(func(c *ui.Context) {
-				theme.Apply(c)
+				themeCfg.Apply(c)
 				screens.App(c, services)
 			}),
 		})

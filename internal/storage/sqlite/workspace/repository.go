@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -19,11 +20,25 @@ func New(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// MigrateDB is a legacy no-op; schema changes are applied by sqlite migrations.
+func MigrateDB(db *sql.DB) error {
+	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// Get retrieves a workspace by ID.
 func (r *Repository) Get(ctx context.Context, id string) (*domain.Workspace, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, name, description, created_at, updated_at FROM workspaces WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx, `SELECT id, name, description, created_at, updated_at, default_headers, default_auth, default_tls_insecure FROM workspaces WHERE id = ?`, id)
 	return scanWorkspace(row)
 }
 
+// Save persists a workspace.
 func (r *Repository) Save(ctx context.Context, ws *domain.Workspace) error {
 	if ws == nil {
 		return errors.New("workspace is nil")
@@ -33,17 +48,28 @@ func (r *Repository) Save(ctx context.Context, ws *domain.Workspace) error {
 	}
 	ws.UpdatedAt = time.Now().UTC()
 
+	// Marshal the new fields to JSON strings for storage
+	if ws.DefaultHeaders == nil {
+		ws.DefaultHeaders = map[string]string{}
+	}
+	defaultHeadersJSON, _ := json.Marshal(ws.DefaultHeaders)
+	defaultAuthJSON, _ := json.Marshal(ws.DefaultAuth)
+
 	_, err := r.db.ExecContext(ctx, `
-INSERT INTO workspaces (id, name, description, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO workspaces (id, name, description, created_at, updated_at, default_headers, default_auth, default_tls_insecure)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	description = excluded.description,
-	updated_at = excluded.updated_at
-`, ws.ID, ws.Name, ws.Description, formatTime(ws.CreatedAt), formatTime(ws.UpdatedAt))
+	updated_at = excluded.updated_at,
+	default_headers = excluded.default_headers,
+	default_auth = excluded.default_auth,
+	default_tls_insecure = excluded.default_tls_insecure
+`, ws.ID, ws.Name, ws.Description, formatTime(ws.CreatedAt), formatTime(ws.UpdatedAt), string(defaultHeadersJSON), string(defaultAuthJSON), boolToInt(ws.DefaultTLSInsecure))
 	return err
 }
 
+// Delete removes a workspace by ID.
 func (r *Repository) Delete(ctx context.Context, id string) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = ?`, id)
 	if err != nil {
@@ -59,8 +85,9 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// List returns all workspaces.
 func (r *Repository) List(ctx context.Context, _ string) ([]*domain.Workspace, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, description, created_at, updated_at FROM workspaces ORDER BY updated_at DESC, name ASC`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, description, created_at, updated_at, default_headers, default_auth, default_tls_insecure FROM workspaces ORDER BY updated_at DESC, name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +135,7 @@ ON CONFLICT(workspace_id) DO UPDATE SET
 	return err
 }
 
+// Exists checks if a workspace with the given name already exists.
 func (r *Repository) Exists(ctx context.Context, name string) (bool, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT 1 FROM workspaces WHERE name = ? LIMIT 1`, name)
 	var one int
@@ -127,8 +155,9 @@ type scanner interface {
 
 func scanWorkspace(s scanner) (*domain.Workspace, error) {
 	var ws domain.Workspace
-	var createdAt, updatedAt string
-	if err := s.Scan(&ws.ID, &ws.Name, &ws.Description, &createdAt, &updatedAt); err != nil {
+	var createdAt, updatedAt, defaultHeadersJSON, defaultAuthJSON string
+	var defaultTLSInsecure int
+	if err := s.Scan(&ws.ID, &ws.Name, &ws.Description, &createdAt, &updatedAt, &defaultHeadersJSON, &defaultAuthJSON, &defaultTLSInsecure); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
@@ -136,6 +165,15 @@ func scanWorkspace(s scanner) (*domain.Workspace, error) {
 	}
 	ws.CreatedAt = parseTime(createdAt)
 	ws.UpdatedAt = parseTime(updatedAt)
+	// Decode default_headers JSON
+	if err := json.Unmarshal([]byte(defaultHeadersJSON), &ws.DefaultHeaders); err != nil {
+		ws.DefaultHeaders = map[string]string{}
+	}
+	// Decode defaultAuth JSON
+	if err := json.Unmarshal([]byte(defaultAuthJSON), &ws.DefaultAuth); err != nil {
+		ws.DefaultAuth = domain.Auth{}
+	}
+	ws.DefaultTLSInsecure = defaultTLSInsecure != 0
 	return &ws, nil
 }
 

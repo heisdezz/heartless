@@ -2,7 +2,8 @@ package screens
 
 import (
 	"context"
-	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -14,12 +15,14 @@ import (
 	"github.com/lobehub/lobe-mygo/pkg/theme"
 
 	"heartless/internal/app"
+	"heartless/internal/config"
 	domaincol "heartless/internal/domain/collection"
 	domainenv "heartless/internal/domain/environment"
 	domainreq "heartless/internal/domain/request"
 	domainres "heartless/internal/domain/response"
 	domainvar "heartless/internal/domain/variable"
 	domainws "heartless/internal/domain/workspace"
+	impsvc "heartless/internal/services/importer"
 )
 
 // varDraft holds the editable name and value of one variable. Drafts live in
@@ -32,10 +35,14 @@ type varDraft struct {
 // requestState is one open request's editor and response. Each request has
 // its own, so a pending execution never affects another request's pane.
 type requestState struct {
-	Method string
-	URL    string
-	Body   string
-	Tab    int // 0 Params, 1 Headers, 2 Body
+	Method   string
+	URL      string
+	Body     string
+	BodyType string // "json", "text", "graphql", "form", "multipart", "binary", "none"
+	Tab      int    // 0 Params, 1 Headers, 2 Body
+
+	// Form rows back the form-data and multipart body types.
+	Form []*kv
 
 	Params  []*kv // editable param rows
 	Headers []*kv // editable header rows
@@ -47,6 +54,15 @@ type requestState struct {
 	ResponseTab int
 	sentBody    string
 	copyNotice  string
+
+	// Auth is the request's authentication; AuthToken, AuthUser and AuthPass
+	// back the editor fields for the current auth type.
+	Auth        domainreq.Auth
+	AuthToken   string
+	AuthUser    string
+	AuthPass    string
+	AuthKeyName string
+	AuthKeyVal  string
 }
 
 // kv is one editable key/value row.
@@ -87,21 +103,31 @@ type shellState struct {
 	newVarValue string
 	varDrafts   map[string]*varDraft
 
+	showImportCollection bool
+	importCollectionURL  string
+	importCollectionErr  string
+	importCollectionBusy bool
+
+	// selectedRequestID and the request editor states live below.
 	selectedRequestID string
 	renameRequestID   string
 	renameValue       string
-	searchQuery       string
+
+	// Settings page state: the editor copy, what was saved, and the theme
+	// built from the saved settings.
+	settings        config.ApplicationSettings
+	settingsBase    config.ApplicationSettings
+	settingsLoaded  bool
+	settingsDirty   bool
+	settingsSaved   bool
+	settingsSection settingsSection
+	themeVariant    int
+	themeConfig     *theme.Config
+	searchQuery     string
 
 	// requestStates keeps each open request's editor and response, keyed by
 	// request ID. They are isolated from one another.
 	requestStates map[string]*requestState
-
-	nextID int
-}
-
-func (s *shellState) localID(prefix string) string {
-	s.nextID++
-	return fmt.Sprintf("%s-%d", prefix, s.nextID)
 }
 
 func (s *shellState) currentWorkspace() (domainws.Workspace, bool) {
@@ -183,9 +209,20 @@ func (s *shellState) setActiveEnvironment(ctx context.Context, services *app.Ser
 
 // selectWorkspace makes id the active workspace and restores its persisted active environment.
 func (s *shellState) selectWorkspace(id string, services *app.Services) {
+	if id == "" {
+		return
+	}
 	s.workspaceID = id
 	s.environmentID = ""
-	if err := s.reloadEnvironments(context.Background(), services); err != nil {
+	s.selectedRequestID = ""
+	s.renameRequestID = ""
+	s.collections = nil
+	s.folders = nil
+	s.requests = nil
+	s.environments = nil
+	s.variables = nil
+	ctx := context.Background()
+	if err := s.reload(ctx, services); err != nil {
 		s.err = err.Error()
 	}
 	s.router.Replace("/")
@@ -229,6 +266,12 @@ func (s *shellState) reload(ctx context.Context, services *app.Services) error {
 		}
 	} else {
 		s.workspaceID = ""
+		s.collections = nil
+		s.folders = nil
+		s.requests = nil
+		s.environments = nil
+		s.variables = nil
+		return nil
 	}
 	if err := s.reloadEnvironments(ctx, services); err != nil {
 		return err
@@ -784,6 +827,7 @@ func App(c *ui.Context, services *app.Services) {
 		workspaceDialog(c, st, services)
 		createWorkspaceModal(c, st, services)
 		createEnvironmentModal(c, st, services)
+		importCollectionModal(c, st, services)
 	})
 }
 
@@ -796,7 +840,7 @@ func mainContent(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 				workspaceView(c, tk, st, services)
 			case r.Match("/settings"):
 				r.Title("Settings")
-				settingsView(c, tk)
+				settingsView(c, tk, st, services)
 			case r.Match("/environments"):
 				r.Title("Environments")
 				environmentsView(c, tk, st, services)
@@ -888,16 +932,6 @@ func variablesView(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 	})
 }
 
-func settingsView(c *ui.Context, tk *theme.Tokens) {
-	ui.Column(c).Fill().Children(func() {
-		pageHeader(c, tk, "Settings", "")
-		ui.Column(c).Grow(1).Basis(0).Padding(24).Gap(8).Children(func() {
-			ui.Text(c, "Application settings").FontSize(16).Bold()
-			ui.Text(c, "Settings UI not implemented yet.").TextColor(tk.TextSecondary)
-		})
-	})
-}
-
 func notFoundView(c *ui.Context, tk *theme.Tokens, path string) {
 	ui.Column(c).Fill().Children(func() {
 		contextHeader(c, tk, "Not found")
@@ -945,7 +979,7 @@ func (s *shellState) createEnvironment(services *app.Services) {
 		return
 	}
 	env := domainenv.NewEnvironment(name)
-	env.ID = s.localID("env")
+
 	if err := services.Environments.Save(context.Background(), env, s.workspaceID); err != nil {
 		s.err = err.Error()
 		return
@@ -967,7 +1001,7 @@ func (s *shellState) createEnvironmentVariable(services *app.Services, envID str
 		return
 	}
 	v := domainvar.NewVariable(name, s.newVarValue, "text", false)
-	v.ID = s.localID("var")
+
 	v.Scope = "environment"
 	v.WorkspaceID = s.workspaceID
 	v.EnvironmentID = envID
@@ -1013,7 +1047,7 @@ func (s *shellState) createVariable(services *app.Services) {
 		return
 	}
 	v := domainvar.NewVariable(name, s.newVarValue, "text", false)
-	v.ID = s.localID("var")
+
 	v.Scope = "workspace"
 	v.WorkspaceID = s.workspaceID
 	if err := services.Variables.Save(context.Background(), v.ID, s.workspaceID, "", v); err != nil {
@@ -1024,6 +1058,72 @@ func (s *shellState) createVariable(services *app.Services) {
 	s.newVarValue = ""
 	s.err = ""
 	if err := s.reloadVariables(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+func (s *shellState) openImportCollection() {
+	s.importCollectionURL = ""
+	s.importCollectionErr = ""
+	s.importCollectionBusy = false
+	s.showImportCollection = true
+}
+
+func (s *shellState) importCollectionFromURL(services *app.Services, rawURL string) {
+	if services == nil || s.workspaceID == "" || rawURL == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		s.importCollectionErr = "download failed: " + resp.Status
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		return
+	}
+	s.importCollectionData(services, data)
+}
+
+func (s *shellState) importCollectionFromFile(services *app.Services, f field.File) {
+	data, err := f.ReadAll()
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		return
+	}
+	s.importCollectionData(services, data)
+}
+
+func (s *shellState) importCollectionData(services *app.Services, data []byte) {
+	if services == nil || s.workspaceID == "" {
+		return
+	}
+	s.importCollectionBusy = true
+	s.importCollectionErr = ""
+	svc := impsvc.New(impsvc.Deps{Workspaces: services.Workspaces, Collections: services.Collections})
+	_, err := svc.Import(context.Background(), s.workspaceID, data, impsvc.Options{})
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		s.importCollectionBusy = false
+		return
+	}
+	s.importCollectionBusy = false
+	s.showImportCollection = false
+	s.importCollectionURL = ""
+	if err := s.reloadTree(context.Background(), services); err != nil {
 		s.err = err.Error()
 	}
 }

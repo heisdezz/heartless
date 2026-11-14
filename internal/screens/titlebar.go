@@ -76,7 +76,7 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 	case chosen == "clear-history":
 		// TODO: clear send history once history is persisted.
 	default:
-		if id, ok := parseWorkspaceKey(chosen); ok {
+		if id, ok := parseWorkspaceKey(chosen); ok && id != st.workspaceID {
 			st.selectWorkspace(id, services)
 		}
 	}

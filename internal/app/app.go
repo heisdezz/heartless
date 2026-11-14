@@ -14,6 +14,7 @@ import (
 	colrepo "heartless/internal/storage/sqlite/collection"
 	envrepo "heartless/internal/storage/sqlite/environment"
 	histrepo "heartless/internal/storage/sqlite/history"
+	settingsrepo "heartless/internal/storage/sqlite/settings"
 	varrepo "heartless/internal/storage/sqlite/variable"
 	wsrepo "heartless/internal/storage/sqlite/workspace"
 	transport "heartless/internal/transport/http"
@@ -27,6 +28,7 @@ type Services struct {
 	Variables    *varrepo.Repository
 	Collections  *colrepo.Repository
 	History      *histrepo.Repository
+	Settings     *settingsrepo.Repository
 
 	// Requests executes saved requests against HTTP. Each call is independent,
 	// so concurrent executions never share state.
@@ -89,6 +91,7 @@ func Open(ctx context.Context) (*Services, error) {
 		Variables:    varrepo.New(db),
 		Collections:  colrepo.New(db),
 		History:      history,
+		Settings:     settingsrepo.New(db),
 		Requests:     reqservice.NewExecutor(transport.NewClient(), nil, domainreq.DefaultHTTPSettings()).WithHistory(history),
 	}, nil
 }

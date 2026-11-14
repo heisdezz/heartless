@@ -222,6 +222,16 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
   - 2026-11-14T01:42:00Z: Linked workspaces/environments to SQLite in UI scope: `screens.App` now takes `*app.Services`, loads/persists workspaces and environments via SQLite repos (`WorkspaceID` linked on envs), create/select flows write/read DB, active selection reloads envs per workspace, errors surfaced in sidebar. Added `WorkspaceID` to domain environment and updated env repo scan/save accordingly (storage/domain touched as required linkage). Removed stale duplicate `internal/screens/titlebar.go`/`titlebar_test.go` conflicting with current shell. `go build ./internal/app ./internal/screens ./internal/storage/sqlite/... .` passed; `go build ./...` still blocked by unrelated pre-existing `internal/domain/variable-resolution` errors. Auth UI still deferred.
   - 2026-11-14T01:48:30Z: Implemented workspace variable/value creation linked to DB: added `/variables` view + title-bar "Variables" nav, workspace-scoped variable list/create (name/value) persisted via SQLite variable repo; wired `Services.Variables` in app bootstrap. Linkage changes outside declared scope (noted): `internal/app/app.go`, `internal/domain/variable/variable.go` (ID/scope IDs), `internal/storage/sqlite/variable/repository.go` (store/scan IDs). `go build ./internal/app ./internal/screens ./internal/storage/sqlite/... .` and `go test ./internal/storage/sqlite` passed; `go build ./...` still blocked by unrelated pre-existing `internal/domain/variable-resolution` errors. Env-scoped vars, editing/deletion, secret-safe masking, and auth UI pending.
 
+### UI-TITLEBAR: Custom window title bar
+- Status: in_progress
+- Owner: mimo
+- Updated: 2026-11-14T03:37:00Z
+- Depends on: UI-APP-SHELL
+- Allowed paths/scope: `main.go` (window options only), `internal/screens/titlebar.go`, `internal/screens/app.go` (title bar wiring only), `internal/screens/*_test.go`
+- Acceptance: Native OS title bar hidden; app draws a single custom draggable title bar with themed minimize/maximize/restore/close controls wired to the window; workspace/env breadcrumb and back navigation preserved; targeted `go build`/`go test`/`go vet` pass.
+- Notes:
+  - 2026-11-14T03:37:00Z: Claimed per user request (dislikes the native window title bar; wants a custom one). Scope overlaps UI-APP-SHELL (`internal/screens/**`, `main.go`) which is in `review` with kilo idle — recorded here per rule 3 before touching those files; UI-APP-SHELL block left untouched. Approach: `mygo.TitleBarHidden` (+ possibly `HideWindowButtons`) with a custom-drawn bar in `internal/screens/titlebar.go`.
+
 ## Documentation Workstreams
 
 ### DOC-PLAN: Implementation plan baseline
@@ -329,3 +339,4 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T02:48:00Z [kilo] P0-STATE-SEPARATION: Added app/gui/transient state scaffolding in `internal/state/**`; targeted builds passed, review (screen migration pending).
 - 2026-11-14T03:29:30Z [mimo] P6-IMPORTERS: Implemented Postman/Insomnia importers, import service (detect→parse→normalize→conflict-resolve→atomic persist), migration v5 `requests.headers`/`params` + `ImportBatch`; `go build ./...`, targeted `go test`, `go vet` pass; review.
 - 2026-11-14T03:34:54Z [mimo] P6-IMPORTERS: Docs follow-up — added "Implemented (P6-IMPORTERS)" and remaining-work sections to `docs/features/import-export.md` (doc-only; no code changes).
+- 2026-11-14T03:37:00Z [mimo] UI-TITLEBAR: Claimed custom window title bar task (user dislikes native title bar); approach: hide native bar, draw custom one in `internal/screens/titlebar.go`.

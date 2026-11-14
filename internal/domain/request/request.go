@@ -31,9 +31,49 @@ type Request struct {
 	Params       map[string]string `json:"params,omitempty" db:"-"`
 	Body         string            `json:"body,omitempty" db:"body"`
 	BodyType     string            `json:"body_type,omitempty" db:"body_type"`
-	SortOrder    int               `json:"sort_order,omitempty" db:"sort_order"`
-	CreatedAt    time.Time         `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at" db:"updated_at"`
+	// Auth is the request's authentication, applied at execution time.
+	Auth      Auth      `json:"auth,omitempty" db:"-"`
+	SortOrder int       `json:"sort_order,omitempty" db:"sort_order"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// AuthType identifies how a request authenticates.
+type AuthType string
+
+// Auth types, matching the names the editor offers.
+const (
+	AuthInherit AuthType = "inherit"
+	AuthNone    AuthType = "none"
+	AuthAPIKey  AuthType = "api_key"
+	AuthAWS     AuthType = "aws"
+	AuthBasic   AuthType = "basic"
+	AuthBearer  AuthType = "bearer"
+	AuthDigest  AuthType = "digest"
+	AuthJWT     AuthType = "jwt"
+	AuthOAuth1  AuthType = "oauth1"
+	AuthOAuth2  AuthType = "oauth2"
+	AuthNTLM    AuthType = "ntlm"
+)
+
+// Auth holds a request's authentication settings. Only the fields its Type
+// needs are used.
+type Auth struct {
+	Type AuthType `json:"type"`
+	// Token is the bearer token or JWT.
+	Token string `json:"token,omitempty"`
+	// Username and Password are used by Basic and Digest auth.
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	// Key, Header and Prefix are used by API key auth.
+	Key    string `json:"key,omitempty"`
+	Header string `json:"header,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
+}
+
+// IsZero reports whether the auth adds nothing, so it need not be stored.
+func (a Auth) IsZero() bool {
+	return a == Auth{}
 }
 
 // New creates a request with a generated ID and timestamps.

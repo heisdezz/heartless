@@ -26,10 +26,15 @@ func requestPane(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 	resp, running, errText, respTab, sentBody := st.responseView(req.ID)
 
 	ui.Column(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-		requestEditor(c, tk, st, services, req, rs)
-		ui.Box(c).Height(1).AlignSelf(ui.Stretch).Background(tk.BorderSecondary)
+		// Request on the left, response on the right, split vertically.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
-			responsePanel(c, tk, rs, resp, running, errText, respTab, sentBody)
+			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+				requestEditor(c, tk, st, services, req, rs)
+			})
+			ui.Box(c).Width(1).AlignSelf(ui.Stretch).Background(tk.BorderSecondary)
+			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+				responsePanel(c, tk, rs, resp, running, errText, respTab, sentBody)
+			})
 		})
 	})
 }
@@ -569,6 +574,7 @@ func variableSpans(text string, tk *theme.Tokens) []ui.Span {
 	}
 	return spans
 }
+
 // persistDraft saves the editor's URL/body/params/headers back to the request.
 func (s *shellState) persistDraft(services *app.Services, reqID string, rs *requestState) {
 	req, ok := s.requestByID(reqID)
