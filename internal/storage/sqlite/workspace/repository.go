@@ -77,6 +77,37 @@ func (r *Repository) List(ctx context.Context, _ string) ([]*domain.Workspace, e
 	return out, rows.Err()
 }
 
+// GetActiveEnvironmentID returns the persisted active environment ID for a workspace.
+func (r *Repository) GetActiveEnvironmentID(ctx context.Context, workspaceID string) (string, error) {
+	if workspaceID == "" {
+		return "", nil
+	}
+	var envID string
+	err := r.db.QueryRowContext(ctx, `SELECT active_environment_id FROM workspace_state WHERE workspace_id = ?`, workspaceID).Scan(&envID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return envID, nil
+}
+
+// SetActiveEnvironmentID persists the active environment ID for a workspace.
+func (r *Repository) SetActiveEnvironmentID(ctx context.Context, workspaceID, environmentID string) error {
+	if workspaceID == "" {
+		return errors.New("workspace id is required")
+	}
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO workspace_state (workspace_id, active_environment_id, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(workspace_id) DO UPDATE SET
+	active_environment_id = excluded.active_environment_id,
+	updated_at = excluded.updated_at
+`, workspaceID, environmentID, formatTime(time.Now().UTC()))
+	return err
+}
+
 func (r *Repository) Exists(ctx context.Context, name string) (bool, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT 1 FROM workspaces WHERE name = ? LIMIT 1`, name)
 	var one int
