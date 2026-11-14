@@ -48,6 +48,9 @@ func TestCollectionTree(t *testing.T) {
 		if !tt.HasText(want) {
 			t.Fatalf("sidebar missing %q, texts %q", want, tt.Texts())
 		}
+		if r, ok := tt.Find(want); !ok || r.W == 0 || r.H == 0 {
+			t.Fatalf("sidebar row %q has no size: %+v", want, r)
+		}
 	}
 }
 

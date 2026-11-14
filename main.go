@@ -41,6 +41,17 @@ func main() {
 			Title:  "Heartless",
 			Width:  1200,
 			Height: 800,
+			// The view draws the whole window decoration (screens.titleBar): the
+			// bar, its window buttons and the drag area. Frameless rather than a
+			// hidden title bar because a compositor that decorates windows itself
+			// (KWin on Wayland) keeps its own title bar for one, and GTK keeps
+			// the buttons out of the view's hands. GtkWindow stays resizable, so
+			// the window still resizes from its edges and drags by its bar.
+			// A platform that draws the controls anyway (macOS) still reports
+			// their room, which the bar keeps clear of.
+			Frameless:      true,
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: int(screens.TitleBarHeight),
 			Content: ui.View(func(c *ui.Context) {
 				themeCfg.Apply(c)
 				screens.App(c, services)

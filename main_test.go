@@ -1,27 +1,36 @@
 package main
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"heartless/internal/app"
+	"heartless/internal/screens"
 )
 
 // The view runs without a window in tests, which click and type as a user
 // would.
-func TestView(t *testing.T) {
-	a := &lo{}
-	tt := ui.NewTester(a.view, 480, 360)
-	if err := tt.Click("+"); err != nil {
-		t.Fatal(err)
+func TestAppRenders(t *testing.T) {
+	app.SetDefaultDBPath(filepath.Join(t.TempDir(), "heartless.db"))
+	services, err := app.Open(context.Background())
+	if err != nil {
+		t.Fatalf("open services: %v", err)
 	}
-	if a.count != 1 || !tt.HasText("1") {
-		t.Errorf("count %d after a click, texts %q", a.count, tt.Texts())
+	defer services.DB.Close()
+
+	tt := ui.NewTester(func(c *ui.Context) { screens.App(c, services) }, 1000, 700)
+	if !tt.HasText("Heartless") {
+		t.Fatalf("title bar missing, texts %q", tt.Texts())
 	}
-	if err := tt.Click("Name"); err != nil {
-		t.Fatal(err)
+	for _, want := range []string{"Environments", "Settings", "Request", "Response"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q, texts %q", want, tt.Texts())
+		}
 	}
-	tt.Type("Ada")
-	if !tt.HasText("Hello, Ada!") {
-		t.Errorf("texts %q after typing a name", tt.Texts())
+	if err := tt.Click("Settings"); err != nil {
+		t.Fatalf("open settings: %v", err)
 	}
 }

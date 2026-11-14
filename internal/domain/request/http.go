@@ -19,13 +19,13 @@ const (
 type BodyType string
 
 const (
-	BodyNone       BodyType = ""
-	BodyJSON       BodyType = "json"
-	BodyText       BodyType = "text"
-	BodyForm       BodyType = "form"
-	BodyMultipart  BodyType = "multipart"
-	BodyBinary     BodyType = "binary"
-	BodyGraphQL    BodyType = "graphql"
+	BodyNone      BodyType = ""
+	BodyJSON      BodyType = "json"
+	BodyText      BodyType = "text"
+	BodyForm      BodyType = "form"
+	BodyMultipart BodyType = "multipart"
+	BodyBinary    BodyType = "binary"
+	BodyGraphQL   BodyType = "graphql"
 )
 
 // HTTPSettings contains transport and execution settings for HTTP requests.

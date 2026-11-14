@@ -1,0 +1,148 @@
+name: CI and Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Build output, matching "out" in mygo.json.
+  BUILD_DIR: build
+
+jobs:
+  test:
+    name: Test and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -timeout 5m
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS builds both architectures into one universal app and makes the
+          # .dmg, which needs macOS.
+          - name: macos
+            os: macos-latest
+            platform: darwin/universal
+            artifact: heartless-macos
+          - name: linux
+            os: ubuntu-latest
+            platform: linux/amd64
+            artifact: heartless-linux
+          - name: windows
+            os: windows-latest
+            platform: windows/amd64
+            artifact: heartless-windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The Linux build links GTK/WebKit, which the runner needs present.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev
+
+      - name: Build app
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          args=(-platform "$PLATFORM" -o "$BUILD_DIR")
+          # Ad-hoc sign on macOS so the bundle runs without a Developer ID.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            args+=(-sign -)
+          fi
+          go tool mygo build "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ env.BUILD_DIR }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Read version
+        id: version
+        run: |
+          version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' mygo.json | head -n1)"
+          if [ -z "$version" ]; then
+            echo "could not read version from mygo.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
+      - name: List files to publish
+        run: find dist -type f | sort
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-running for the same version replaces its assets.
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "Heartless $VERSION" \
+              --target "$GITHUB_SHA" \
+              --generate-notes
+          fi

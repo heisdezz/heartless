@@ -252,6 +252,17 @@ func (s *shellState) activeVariables() []variableView {
 	return out
 }
 
+// knowsVariable reports whether the active environment or workspace defines name,
+// so the editor can highlight it as resolved.
+func (s *shellState) knowsVariable(name string) bool {
+	for _, v := range s.activeVariables() {
+		if v.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // variableView is a name/value pair for placeholder previews.
 type variableView struct {
 	Name  string

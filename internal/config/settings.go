@@ -29,13 +29,13 @@ type Theme struct {
 // DefaultTheme returns the default theme configuration.
 func DefaultTheme() Theme {
 	return Theme{
-		Name:          "light",
-		AccentColor:   "#0066ff",
+		Name:            "light",
+		AccentColor:     "#0066ff",
 		BackgroundColor: "#ffffff",
 		ForegroundColor: "#000000",
-		Inverted:      false,
-		CreatedAt:     time.Now().UTC(),
-		UpdatedAt:     time.Now().UTC(),
+		Inverted:        false,
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
 	}
 }
 
@@ -53,6 +53,9 @@ type Interface struct {
 	// DoubleClickAction action on double-click (e.g., "open", "edit", "none").
 	DoubleClickAction string `json:"double_click_action,omitempty"`
 
+	// FontSize sets the UI font size in DIPs; zero uses the theme's default.
+	FontSize int `json:"font_size,omitempty" db:"font_size"`
+
 	// CreatedAt tracks when the interface config was created.
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 
@@ -63,12 +66,12 @@ type Interface struct {
 // DefaultInterface returns the default interface configuration.
 func DefaultInterface() Interface {
 	return Interface{
-		ReduceMotion:     false,
-		CompactMode:      false,
-		ShowIcons:        true,
+		ReduceMotion:      false,
+		CompactMode:       false,
+		ShowIcons:         true,
 		DoubleClickAction: "open",
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		CreatedAt:         time.Now().UTC(),
+		UpdatedAt:         time.Now().UTC(),
 	}
 }
 
@@ -93,11 +96,11 @@ type Plugins struct {
 // DefaultPlugins returns the default plugin configuration.
 func DefaultPlugins() Plugins {
 	return Plugins{
-		Enabled:    []string{},
-		Available:  []string{},
-		Settings:   map[string]interface{}{},
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
+		Enabled:   []string{},
+		Available: []string{},
+		Settings:  map[string]interface{}{},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 }
 
@@ -122,11 +125,10 @@ type ApplicationSettings struct {
 // DefaultApplicationSettings returns the default application settings.
 func DefaultApplicationSettings() ApplicationSettings {
 	return ApplicationSettings{
-		Theme:      DefaultTheme(),
-		Interface:  DefaultInterface(),
-		Plugins:    DefaultPlugins(),
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
+		Theme:     DefaultTheme(),
+		Interface: DefaultInterface(),
+		Plugins:   DefaultPlugins(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 }
-

@@ -16,29 +16,29 @@ import (
 type Type string
 
 const (
-	WorkspaceCreated            Type = "workspace.created"
-	WorkspaceUpdated            Type = "workspace.updated"
-	WorkspaceDeleted            Type = "workspace.deleted"
-	WorkspaceActivated          Type = "workspace.activated"
-	EnvironmentCreated          Type = "environment.created"
-	EnvironmentUpdated          Type = "environment.updated"
-	EnvironmentDeleted          Type = "environment.deleted"
-	EnvironmentActivated        Type = "environment.activated"
-	VariableCreated             Type = "variable.created"
-	VariableUpdated             Type = "variable.updated"
-	VariableDeleted             Type = "variable.deleted"
-	RequestCreated              Type = "request.created"
-	RequestUpdated              Type = "request.updated"
-	RequestDeleted              Type = "request.deleted"
-	RequestStarted              Type = "request.started"
-	RequestCompleted            Type = "request.completed"
-	RequestFailed               Type = "request.failed"
-	RequestCancelled            Type = "request.cancelled"
-	HistoryRecorded             Type = "history.recorded"
-	WebSocketConnected          Type = "websocket.connected"
-	WebSocketDisconnected       Type = "websocket.disconnected"
-	GRPCConnected               Type = "grpc.connected"
-	GRPCDisconnected            Type = "grpc.disconnected"
+	WorkspaceCreated      Type = "workspace.created"
+	WorkspaceUpdated      Type = "workspace.updated"
+	WorkspaceDeleted      Type = "workspace.deleted"
+	WorkspaceActivated    Type = "workspace.activated"
+	EnvironmentCreated    Type = "environment.created"
+	EnvironmentUpdated    Type = "environment.updated"
+	EnvironmentDeleted    Type = "environment.deleted"
+	EnvironmentActivated  Type = "environment.activated"
+	VariableCreated       Type = "variable.created"
+	VariableUpdated       Type = "variable.updated"
+	VariableDeleted       Type = "variable.deleted"
+	RequestCreated        Type = "request.created"
+	RequestUpdated        Type = "request.updated"
+	RequestDeleted        Type = "request.deleted"
+	RequestStarted        Type = "request.started"
+	RequestCompleted      Type = "request.completed"
+	RequestFailed         Type = "request.failed"
+	RequestCancelled      Type = "request.cancelled"
+	HistoryRecorded       Type = "history.recorded"
+	WebSocketConnected    Type = "websocket.connected"
+	WebSocketDisconnected Type = "websocket.disconnected"
+	GRPCConnected         Type = "grpc.connected"
+	GRPCDisconnected      Type = "grpc.disconnected"
 )
 
 // Event is the common envelope for application events.
@@ -85,9 +85,9 @@ type RequestPayload struct {
 
 // ExecutionPayload carries execution lifecycle/result data.
 type ExecutionPayload struct {
-	RequestID string                      `json:"request_id,omitempty"`
-	Result    *response.ExecutionResult   `json:"result,omitempty"`
-	Error     string                      `json:"error,omitempty"`
+	RequestID string                    `json:"request_id,omitempty"`
+	Result    *response.ExecutionResult `json:"result,omitempty"`
+	Error     string                    `json:"error,omitempty"`
 }
 
 // HistoryPayload carries history persistence events.

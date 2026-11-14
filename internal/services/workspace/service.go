@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	domain "heartless/internal/domain/workspace"
 	col "heartless/internal/domain/collection"
+	domain "heartless/internal/domain/workspace"
 	col_repo "heartless/internal/storage/sqlite/collection"
 	ws "heartless/internal/storage/sqlite/workspace"
 )
@@ -61,7 +61,7 @@ func NewService(db *sql.DB) *service {
 
 // service is the concrete implementation of Service using SQLite.
 type service struct {
-	repo      *ws.Repository
+	repo           *ws.Repository
 	collectionRepo *col_repo.Repository
 }
 

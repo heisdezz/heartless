@@ -1,8 +1,6 @@
 package screens
 
 import (
-	"strconv"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/lobehub/lobe-mygo/pkg/action"
 	"github.com/lobehub/lobe-mygo/pkg/field"
@@ -55,45 +53,38 @@ func authShowsToken(t domainreq.AuthType) bool {
 	return false
 }
 
-// authToolbar renders the Headers | Bearer ▾ | Settings | Info bar with the auth
-// type menu, and reports a chosen action ("settings" or "info"). The bar element
-// is the anchor for the menu's open state.
-func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) string {
-	chosenAction := ""
+// authToolbar renders the auth header: the scheme label beside the type menu,
+// with the per-scheme actions at the far end.
+func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 	bar := ui.Row(c)
 	open := ui.Local(bar, "authMenu", func() bool { return false })
 
-	bar.Height(34).AlignSelf(ui.Stretch).PaddingX(16).Gap(6).AlignItems(ui.Center).
-		BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
-		// The Headers tab label the bar sits beside.
-		ui.Text(c, "Headers").FontSize(13).FontWeight(600).TextColor(tk.Text).Shrink(0)
-		if n := len(rs.Headers); n > 0 {
-			ui.Text(c, strconv.Itoa(n)).FontSize(11).TextColor(tk.TextTertiary).Shrink(0)
-		}
+	bar.Height(40).AlignSelf(ui.Stretch).AlignItems(ui.Center).Gap(8).
+		BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).PaddingY(0).Children(func() {
+		ui.Text(c, "Auth").FontSize(13).FontWeight(600).TextColor(tk.Text).Shrink(0)
 
-		chosen := overlay.DropdownMenu(c, open, overlay.DropdownMenuProps{Items: authMenuItems(rs.Auth.Type)}, func(t ui.Element) {
-			authTrigger(t, c, tk, rs)
-		})
-		if chosen != "" {
-			rs.Auth.Type = domainreq.AuthType(chosen)
-		}
-
-		for _, act := range []struct{ key, label string }{{"settings", "Settings"}, {"info", "Info"}} {
-			act := act
-			btn := action.Button(c, act.label, action.ButtonProps{Variant: action.Text})
-			if btn.TextColor(tk.TextSecondary).Clicked() {
-				chosenAction = act.key
+		ui.Box(c).Shrink(0).Children(func() {
+			chosen := overlay.DropdownMenu(c, open, overlay.DropdownMenuProps{Items: authMenuItems(rs.Auth.Type)}, func(t ui.Element) {
+				authTrigger(t, c, tk, rs)
+			})
+			if chosen != "" {
+				rs.Auth.Type = domainreq.AuthType(chosen)
 			}
+		})
+
+		ui.Box(c).Grow(1)
+
+		for _, name := range []string{"Settings", "Info"} {
+			action.Button(c, name, action.ButtonProps{Variant: action.Text, Size: theme.Small}).TextColor(tk.TextSecondary)
 		}
 	})
-	return chosenAction
 }
 
-// authTrigger shows the current auth type, with a check mark inline when it is
-// applied, and a chevron for the menu.
+// authTrigger styles the type menu's trigger as a compact select: the scheme,
+// a check when credentials are set, and a chevron.
 func authTrigger(t ui.Element, c *ui.Context, tk *theme.Tokens, rs *requestState) {
-	t.Height(24).PaddingX(6).Gap(6).Radius(tk.BorderRadiusSM).AlignItems(ui.Center).
-		TextColor(tk.Text).Cursor(ui.CursorPointer)
+	t.Height(28).PaddingX(10).Gap(6).Radius(tk.BorderRadius).AlignItems(ui.Center).
+		Background(tk.FillQuaternary).TextColor(tk.Text).Cursor(ui.CursorPointer)
 	if t.Hovered() {
 		t.Background(tk.FillTertiary)
 	}
@@ -156,44 +147,46 @@ func authMenuItems(current domainreq.AuthType) []overlay.MenuItem {
 	return items
 }
 
-// authFields renders the credential inputs for the current auth type.
+// authFields renders the credential inputs for the current auth type, one
+// labelled field per row with a hint under the group.
 func authFields(c *ui.Context, tk *theme.Tokens, rs *requestState) {
-	ui.Column(c).AlignSelf(ui.Stretch).Gap(8).Children(func() {
+	ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Gap(14).Children(func() {
 		switch rs.Auth.Type {
 		case domainreq.AuthBearer, domainreq.AuthJWT:
-			label(c, tk, "Token")
-			ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-				field.Input(c, &rs.Auth.Token, field.InputProps{Placeholder: "{{token}} or a token"}).Grow(1)
-			})
-			ui.Text(c, "Sent as Authorization: Bearer <token>.").FontSize(11).TextColor(tk.TextTertiary)
+			authTextField(c, tk, "Token", &rs.Auth.Token, "{{token}} or a token")
+			authHint(c, tk, "Sent as Authorization: Bearer <token>.")
 		case domainreq.AuthBasic, domainreq.AuthDigest, domainreq.AuthNTLM:
-			label(c, tk, "Username")
-			ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-				field.Input(c, &rs.Auth.Username, field.InputProps{Placeholder: "{{username}}"}).Grow(1)
-			})
-			label(c, tk, "Password")
-			ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-				field.Input(c, &rs.Auth.Password, field.InputProps{Placeholder: "{{password}}"}).Grow(1)
-			})
+			authTextField(c, tk, "Username", &rs.Auth.Username, "{{username}}")
+			authTextField(c, tk, "Password", &rs.Auth.Password, "{{password}}")
 		case domainreq.AuthAPIKey:
-			label(c, tk, "Key")
-			ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-				field.Input(c, &rs.Auth.Key, field.InputProps{Placeholder: "{{apiKey}}"}).Grow(1)
-			})
-			label(c, tk, "Header")
-			ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-				field.Input(c, &rs.Auth.Header, field.InputProps{Placeholder: "X-API-Key"}).Grow(1)
-			})
+			authTextField(c, tk, "Key", &rs.Auth.Key, "{{apiKey}}")
+			authTextField(c, tk, "Header", &rs.Auth.Header, "X-API-Key")
 		case domainreq.AuthNone:
-			ui.Text(c, "No authentication is applied.").FontSize(13).TextColor(tk.TextTertiary)
+			authNote(c, tk, "No authentication is applied.")
 		case domainreq.AuthInherit, "":
-			ui.Text(c, "Inherited from the collection or workspace.").FontSize(13).TextColor(tk.TextTertiary)
+			authNote(c, tk, "Inherited from the collection or workspace.")
 		default:
-			ui.Text(c, authLabel(rs.Auth.Type)+" is not supported yet.").FontSize(13).TextColor(tk.TextTertiary)
+			authNote(c, tk, authLabel(rs.Auth.Type)+" is not supported yet.")
 		}
 	})
 }
 
-func label(c *ui.Context, tk *theme.Tokens, s string) {
-	ui.Text(c, s).FontSize(12).TextColor(tk.TextSecondary)
+// authTextField renders a label over a full-width input in a capped column.
+func authTextField(c *ui.Context, tk *theme.Tokens, name string, value *string, placeholder string) {
+	ui.Column(c).AlignSelf(ui.Stretch).MaxWidth(560).Gap(6).Children(func() {
+		ui.Text(c, name).FontSize(12).FontWeight(500).TextColor(tk.TextSecondary)
+		ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Clip().Children(func() {
+			field.Input(c, value, field.InputProps{Placeholder: placeholder}).Grow(1).Basis(0).Font("monospace")
+		})
+	})
+}
+
+// authHint explains how the credentials are sent.
+func authHint(c *ui.Context, tk *theme.Tokens, text string) {
+	ui.Text(c, text).FontSize(11).TextColor(tk.TextTertiary).MaxWidth(560)
+}
+
+// authNote fills the tab when the type takes no credentials.
+func authNote(c *ui.Context, tk *theme.Tokens, text string) {
+	ui.Text(c, text).FontSize(13).TextColor(tk.TextTertiary)
 }

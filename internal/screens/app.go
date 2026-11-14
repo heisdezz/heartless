@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/lobehub/lobe-mygo/pkg/action"
 	"github.com/lobehub/lobe-mygo/pkg/field"
@@ -79,6 +80,8 @@ type shellState struct {
 	workspaceID     string
 	environmentID   string
 	router          *ui.Router
+	// window is the window the view draws in, for the title bar's controls.
+	window *mygo.Window
 
 	workspaces   []domainws.Workspace
 	environments []domainenv.Environment

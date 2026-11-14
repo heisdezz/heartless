@@ -90,9 +90,9 @@ func (p *BearerAuthProvider) Type() string {
 
 // APIKeyProvider provides API key authentication.
 type APIKeyProvider struct {
-	Key      string
-	Header   string // e.g., "X-API-Key"
-	Prefix   string // e.g., "ApiKey "
+	Key    string
+	Header string // e.g., "X-API-Key"
+	Prefix string // e.g., "ApiKey "
 }
 
 // ApplyCredentials applies API key credentials to the request.

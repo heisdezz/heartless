@@ -2,6 +2,7 @@ package screens
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -105,11 +106,8 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 			// it in a clipping flex box: the placeholder's intrinsic width would
 			// otherwise stop the row from flexing.
 			ui.Box(c).Grow(1).Basis(0).MinWidth(0).Clip().Children(func() {
-				urlInput := field.Input(c, &rs.URL, field.InputProps{Placeholder: "https://api.example.com/users  ·  use {{baseUrl}}"}).
+				field.Input(c, &rs.URL, field.InputProps{Placeholder: "https://api.example.com/users  ·  use {{baseUrl}}"}).
 					Grow(1).Basis(0).Font("monospace")
-				if strings.Contains(rs.URL, "{{") {
-					urlInput.TextColor(tk.Primary)
-				}
 			})
 			if running {
 				if action.Button(c, "Cancel", action.ButtonProps{Variant: action.Dashed}).Clicked() {
@@ -121,22 +119,22 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 			}
 		})
 
-		// What the URL resolves to with the active environment.
-		if strings.TrimSpace(rs.URL) != "" {
-			ui.Row(c).Height(22).AlignSelf(ui.Stretch).PaddingX(16).Gap(8).AlignItems(ui.Center).Children(func() {
-				if strings.Contains(rs.URL, "{{") {
-					variableHighlightText(c, tk, rs.URL, 11)
-					ui.Text(c, "→").FontSize(11).TextColor(tk.TextTertiary).Shrink(0)
-					ui.Text(c, st.previewURL(rs.URL)).Font("monospace").FontSize(11).
-						TextColor(tk.TextTertiary).SingleLine().MinWidth(0)
-				}
+		// What the URL resolves to with the active environment, and which of its
+		// placeholders the environment defines.
+		if strings.Contains(rs.URL, "{{") {
+			ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Padding(4, 16, 8, 16).Gap(2).Children(func() {
+				ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Clip().Children(func() {
+					variableHighlightText(c, tk, rs.URL, 11, st.knowsVariable)
+				})
+				ui.Text(c, "→ "+st.previewURL(rs.URL)).Font("monospace").FontSize(11).
+					TextColor(tk.TextTertiary).SingleLine().MinWidth(0)
 			})
 		}
 
 		// Tabs, as plain buttons so the pane keeps filling the width.
 		ui.Row(c).Height(38).AlignSelf(ui.Stretch).PaddingX(16).Gap(4).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
-			for i, name := range []string{"Params", "Headers", "Body"} {
+			for i, name := range []string{"Params", "Headers", "Body", "Auth"} {
 				i, name := i, name
 				btn := action.Button(c, name, action.ButtonProps{Variant: action.Text})
 				if rs.Tab == i {
@@ -158,10 +156,111 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 				case 1:
 					pairsEditor(c, tk, &rs.Headers, "Header", "Value")
 				case 2:
-					field.TextArea(c, &rs.Body, field.TextAreaProps{Placeholder: "Request body", MinRows: 6, MaxRows: 16})
+					bodyEditor(c, tk, rs)
+				case 3:
+					authEditor(c, tk, rs)
 				}
 			})
 		})
+	})
+}
+
+// bodyTypes lists the body encodings in the order the menu shows them.
+var bodyTypes = []struct {
+	value string
+	label string
+}{
+	{string(domainreq.BodyForm), "Url Encoded"},
+	{string(domainreq.BodyMultipart), "Multi-Part"},
+	{string(domainreq.BodyGraphQL), "GraphQL"},
+	{string(domainreq.BodyJSON), "JSON"},
+	{string(domainreq.BodyText), "Text"},
+	{string(domainreq.BodyBinary), "Binary File"},
+	{string(domainreq.BodyNone), "No Body"},
+}
+
+// bodyEditor shows the body type picker and the editor for that type.
+func bodyEditor(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+	if rs.BodyType == "" {
+		rs.BodyType = string(domainreq.BodyNone)
+	}
+
+	ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Gap(8).Children(func() {
+		options := make([]field.SelectOption, 0, len(bodyTypes))
+		for _, bt := range bodyTypes {
+			options = append(options, field.SelectOption{Value: bt.value, Label: bt.label})
+		}
+		ui.Row(c).AlignSelf(ui.Stretch).Children(func() {
+			field.Select(c, &rs.BodyType, field.SelectProps{Options: options, Size: theme.Small}).Width(150).Shrink(0)
+		})
+
+		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Children(func() {
+			switch rs.BodyType {
+			case string(domainreq.BodyNone):
+				ui.Text(c, "This request has no body.").FontSize(13).TextColor(tk.TextTertiary)
+			case string(domainreq.BodyForm), string(domainreq.BodyMultipart):
+				pairsEditor(c, tk, &rs.Form, "Field", "Value")
+			case string(domainreq.BodyJSON):
+				jsonBodyEditor(c, tk, rs)
+			default:
+				ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
+					field.TextArea(c, &rs.Body, field.TextAreaProps{Placeholder: bodyPlaceholder(rs.BodyType), MinRows: 8, MaxRows: 20})
+				})
+			}
+		})
+	})
+}
+
+func bodyPlaceholder(bodyType string) string {
+	switch bodyType {
+	case string(domainreq.BodyGraphQL):
+		return "query { user(id: 1) { id name } }"
+	case string(domainreq.BodyBinary):
+		return "Binary payload"
+	default:
+		return "Request body"
+	}
+}
+
+// jsonBodyEditor edits a JSON body as text and shows a syntax-highlighted
+// preview, which also shows a JavaScript object converted to strict JSON.
+func jsonBodyEditor(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+	ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Shrink(0).Children(func() {
+		field.TextArea(c, &rs.Body, field.TextAreaProps{
+			Placeholder: "{\n  \"name\": \"Ada\"\n}",
+			MinRows:     8,
+			MaxRows:     12,
+		}).Font("monospace")
+	})
+
+	body := strings.TrimSpace(rs.Body)
+	if body == "" {
+		return
+	}
+	converted := jsObjectToJSON(rs.Body)
+	header := "Preview"
+	if !json.Valid([]byte(body)) {
+		header = "Preview · sent as JSON"
+	}
+	ui.Text(c, header).FontSize(11).TextColor(tk.TextTertiary).Shrink(0)
+	ui.Scroll(c).Height(160).Shrink(0).MinWidth(0).Children(func() {
+		ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Padding(8).Radius(tk.BorderRadiusSM).
+			Background(tk.FillQuaternary).Children(func() {
+			if spans := jsonHighlightSpans(converted, tk); len(spans) > 0 {
+				ui.RichText(c, spans...).Font("monospace").FontSize(12).MinWidth(0)
+				return
+			}
+			ui.Text(c, converted).Font("monospace").FontSize(12).MinWidth(0)
+		})
+	})
+}
+
+// authEditor is the Auth tab: the type menu (with Settings and Info beside it)
+// and the credential fields for the chosen type.
+func authEditor(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+	ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Gap(16).Children(func() {
+		authToolbar(c, tk, rs)
+		authFields(c, tk, rs)
 	})
 }
 
@@ -538,8 +637,11 @@ func statusColor(tk *theme.Tokens, code int) ui.Color {
 	}
 }
 
-func variableHighlightText(c *ui.Context, tk *theme.Tokens, text string, size float32) {
-	spans := variableSpans(text, tk)
+// variableHighlightText renders text with its {{var}} placeholders highlighted:
+// ones the active environment or workspace defines show as a filled chip, ones
+// that resolve to nothing show warning-colored and underlined.
+func variableHighlightText(c *ui.Context, tk *theme.Tokens, text string, size float32, known func(string) bool) {
+	spans := variableSpans(text, tk, known)
 	if len(spans) == 0 {
 		ui.Text(c, text).Font("monospace").FontSize(size).TextColor(tk.TextSecondary).SingleLine().MinWidth(0)
 		return
@@ -547,29 +649,48 @@ func variableHighlightText(c *ui.Context, tk *theme.Tokens, text string, size fl
 	ui.RichText(c, spans...).Font("monospace").FontSize(size).SingleLine().MinWidth(0).Shrink(1)
 }
 
-// variableSpans splits text into spans, coloring {{...}} tokens.
-func variableSpans(text string, tk *theme.Tokens) []ui.Span {
+// variableSpans splits text into spans, marking each {{...}} token by whether
+// `known` defines its name.
+func variableSpans(text string, tk *theme.Tokens, known func(string) bool) []ui.Span {
 	if !strings.Contains(text, "{{") {
 		return nil
 	}
+	plain := ui.Span{Text: "", Color: tk.TextSecondary}
 	spans := make([]ui.Span, 0, 8)
+	add := func(s ui.Span) {
+		s.Font, s.Size = "monospace", 0
+		if s.Text != "" {
+			spans = append(spans, s)
+		}
+	}
 	for len(text) > 0 {
 		start := strings.Index(text, "{{")
 		if start < 0 {
-			spans = append(spans, ui.Span{Text: text, Color: tk.TextSecondary})
+			plain.Text = text
+			add(plain)
 			break
 		}
 		if start > 0 {
-			spans = append(spans, ui.Span{Text: text[:start], Color: tk.TextSecondary})
+			plain.Text = text[:start]
+			add(plain)
 			text = text[start:]
 		}
 		end := strings.Index(text, "}}")
 		if end < 0 {
-			spans = append(spans, ui.Span{Text: text, Color: tk.Warning})
+			// An unclosed placeholder: mark the rest as malformed.
+			add(ui.Span{Text: text, Color: tk.Warning, WavyUnderline: true, Weight: 600})
 			break
 		}
 		end += 2
-		spans = append(spans, ui.Span{Text: text[:end], Color: tk.Primary, Weight: 600})
+		token := text[:end]
+		name := strings.TrimSpace(text[2 : end-2])
+		if known != nil && known(name) {
+			// Defined: a subtle chip so it reads as a resolved value.
+			add(ui.Span{Text: token, Color: tk.Primary, Weight: 600, Background: tk.PrimaryFillSecondary})
+		} else {
+			// Undefined: warning-colored and wavy-underlined.
+			add(ui.Span{Text: token, Color: tk.Warning, Weight: 600, WavyUnderline: true})
+		}
 		text = text[end:]
 	}
 	return spans
@@ -584,9 +705,19 @@ func (s *shellState) persistDraft(services *app.Services, reqID string, rs *requ
 	req.Method = rs.Method
 	req.URL = rs.URL
 	req.Body = rs.Body
+	req.BodyType = rs.BodyType
+	req.Auth = rs.Auth
 	req.Params = rowsToParams(rs.Params)
 	req.Headers = rowsToParams(rs.Headers)
 	if err := services.Collections.SaveRequest(context.Background(), &req); err != nil {
 		s.err = err.Error()
+		return
+	}
+	// Keep the loaded copy in step so the pane and tree see the saved fields.
+	for i := range s.requests {
+		if s.requests[i].ID == reqID {
+			s.requests[i] = req
+			break
+		}
 	}
 }

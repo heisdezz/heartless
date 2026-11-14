@@ -115,7 +115,7 @@ func sidebar(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Serv
 // treeBody draws the tree, filling the nav so right-clicking the empty area
 // offers to create things.
 func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Services, nav layout.SideNavState) {
-	body := ui.Column(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).Opacity(1 - nav.Collapse)
+	body := ui.Column(c).Grow(1).AlignSelf(ui.Stretch).Opacity(1 - nav.Collapse)
 	body.Padding(0, 0, 8, 0)
 	if st.workspaceID == "" {
 		body.Children(func() {
@@ -129,9 +129,13 @@ func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Ser
 
 	var menuTarget ui.Element
 	body.Children(func() {
-		scroll := ui.Scroll(c).Grow(1).Basis(0).AlignSelf(ui.Stretch)
-		menuTarget = scroll
-		scroll.Children(func() {
+		// Grow fills the nav's height; the automatic basis keeps the scroll's cross
+		// size (its width) the nav's. An explicit Basis(0) collapses it, as the
+		// nav's column is sized by its children, and rows past its height get no
+		// width.
+		list := ui.Scroll(c).AlignSelf(ui.Stretch).Grow(1)
+		menuTarget = list
+		list.Children(func() {
 			ui.Column(c).Grow(1).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
 				if len(cols) == 0 && query == "" {
 					ui.Text(c, "No collections yet — right-click here to add or import one.").FontSize(13).
@@ -218,10 +222,10 @@ func folderRowNested(c *ui.Context, tk *theme.Tokens, st *shellState, services *
 func requestRowAt(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, req *domainreq.Request, depth int) {
 	selected := st.selectedRequestID == req.ID
 	row := ui.ButtonBase(c).Key("req:"+req.ID).Label(req.Name).Row().
-		Height(28).AlignItems(ui.Center).Justify(ui.Start).Gap(8).
+		Height(26).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
 		Radius(tk.BorderRadiusSM).AlignSelf(ui.Stretch).
 		Transition(rowTransition).Cursor(ui.CursorPointer).
-		Padding(0, 6, 0, float32(depth)*14+22)
+		Padding(0, 4, 0, float32(depth)*14+18)
 	switch {
 	case selected:
 		row.Background(tk.FillSecondary)
@@ -234,7 +238,7 @@ func requestRowAt(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 			field.Input(c, &st.renameValue, field.InputProps{Size: theme.Small, Variant: field.InputFilled}).Grow(1).Basis(0)
 			return
 		}
-		ui.Text(c, req.Name).FontSize(13).SingleLine().TextColor(textColor(tk, selected))
+		ui.Text(c, req.Name).FontSize(12).SingleLine().TextColor(textColor(tk, selected))
 	})
 	if st.renameRequestID == req.ID {
 		if action.Button(c, "Save", action.ButtonProps{Variant: action.Text, Size: theme.Small}).Clicked() {
@@ -273,16 +277,16 @@ func methodBadge(c *ui.Context, tk *theme.Tokens, req *domainreq.Request) {
 		}
 		color = methodColor(tk, label)
 	}
-	ui.Text(c, label).Font("monospace").FontSize(10).FontWeight(700).TextColor(color).Width(40).SingleLine()
+	ui.Text(c, label).Font("monospace").FontSize(10).FontWeight(700).TextColor(color).Width(34).SingleLine()
 }
 
 // treeRow draws a tree row with an expand chevron, icon and label, left-aligned.
 func treeRow(c *ui.Context, tk *theme.Tokens, key, label string, depth int, open bool, icon *ui.SVG) ui.Element {
 	row := ui.ButtonBase(c).Key(key).Label(label).Row().
-		Height(28).AlignItems(ui.Center).Justify(ui.Start).Gap(6).
+		Height(26).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
 		Radius(tk.BorderRadiusSM).AlignSelf(ui.Stretch).
 		Transition(rowTransition).Cursor(ui.CursorPointer).
-		Padding(0, 6, 0, float32(depth)*14+6)
+		Padding(0, 4, 0, float32(depth)*14+4)
 	if row.Hovered() {
 		row.Background(tk.FillTertiary)
 	}
@@ -295,7 +299,7 @@ func treeRow(c *ui.Context, tk *theme.Tokens, key, label string, depth int, open
 		if icon != nil {
 			ui.Icon(c, icon).FontSize(14).TextColor(tk.TextSecondary)
 		}
-		ui.Text(c, label).FontSize(13).SingleLine().TextColor(tk.Text)
+		ui.Text(c, label).FontSize(12).SingleLine().TextColor(tk.Text)
 	})
 	return row
 }
