@@ -138,34 +138,37 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
   - 2026-11-14T02:34:30Z: Added HTTP-specific request models/settings (`internal/domain/request/http.go`: methods/body types/settings/defaults, `HTTPRequest`, `NewHTTP`, `NormalizeHTTP`) and structured validation (`internal/domain/request/validate.go`: `ValidationError`/`ValidationErrors`, `ValidateHTTP` for workspace/name/kind/method/url/scheme/settings). Added response HTTP metadata/timing helpers (`internal/domain/response/http.go`: `Timing`, `HTTPMetadata`, `NewHTTPResponse`). Tests: `validate_test.go`, `http_test.go`. `go test ./internal/domain/request ./internal/domain/response` and targeted builds passed. Transport/execution pipeline integration pending (P1-VARIABLE-RESOLUTION, P1-HTTP-TRANSPORT).
 
 ### P1-VARIABLE-RESOLUTION: Variable interpolation and resolution pipeline
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:36:30Z
 - Depends on: P0-DOMAIN-MODELS
 - Allowed paths/scope: `internal/domain/variable/**`, `internal/services/**` (resolver), template/render utilities
 - Acceptance: Deterministic scope precedence, missing/cycle handling, `{{var}}` interpolation, original request preserved, secret metadata handling.
 - Notes:
-  - 
+  - 2026-11-14T02:35:30Z: Claimed; implementing/fixing variable resolution pipeline with scope precedence, interpolation, cycle/missing handling, and secret metadata.
+  - 2026-11-14T02:36:30Z: Reimplemented `internal/domain/variable-resolution` (`resolver.go`, `variable_set.go`): deterministic precedence (request>folder>collection>environment>workspace>app defaults), `{{var}}` interpolation with nested resolution, missing vars/cycles/depth-limit leave placeholders unchanged, `ResolveWithMeta`/`ResolveWithSecrets` secret metadata, cycle detection. Added `resolver_test.go`. `go test ./internal/domain/variable-resolution` passed. Request-copy preservation/integration at service layer pending.
 
 ### P1-HTTP-TRANSPORT: HTTP transport adapter and execution pipeline
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:40:00Z
 - Depends on: P1-HTTP-DOMAIN, P1-VARIABLE-RESOLUTION, P0-SERVICE-INTERFACES
 - Allowed paths/scope: `internal/transport/http/**`, `internal/services/request/**`
 - Acceptance: `net/http`-based execution with context cancellation, timeouts, redirects/TLS/proxy settings hooks, structured execution result; no GUI dependency.
 - Notes:
-  - 
+  - 2026-11-14T02:38:00Z: Claimed; implementing HTTP transport adapter and request execution service (validation/build/transport/capture/result, ctx cancellation, timeout/redirects/TLS/proxy settings). Auth/pre-post/history hooks minimal pending other tasks.
+  - 2026-11-14T02:40:00Z: Added `internal/transport/http/client.go` (`net/http` transport with ctx, timeout, redirect/TLS/proxy handling, URL/params/headers/body build, response capture/timing) and `internal/services/request/executor.go` (clones request to preserve original, resolves vars, validates, executes, tracks cancel funcs, structured `ExecutionResult`). Renamed interface in `internal/services/request/service.go` to `Transport` to avoid redeclare with executor. Tests: `internal/transport/http/client_test.go`, `internal/services/request/executor_test.go`. `go test ./internal/transport/http ./internal/services/request` passed. History/auth/pre-post hooks and richer transport config/pooling integration pending.
 
 ### P1-HISTORY: Execution history persistence and retention hooks
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:44:00Z
 - Depends on: P0-STORAGE-SQLITE, P1-HTTP-TRANSPORT
 - Allowed paths/scope: `internal/domain/history/**`, `internal/services/history/**`, `internal/storage/**`, `migrations/**`
 - Acceptance: History records persisted separately from saved requests; retention/config hooks; large-body strategy documented/implemented per scope.
 - Notes:
-  - 
+  - 2026-11-14T02:42:00Z: Claimed; implementing history migration, SQLite repository, and history service hooks (record/query/clear/retention basics).
+  - 2026-11-14T02:44:00Z: Added migration v4 `execution_history` (+ indexes) in `internal/storage/sqlite/migrate.go` and `migrations/0001_initial_schema.sql`. Implemented SQLite history repo `internal/storage/sqlite/history/repository.go` (save/get/list/delete/clear/prune by workspace/limit) and service impl `internal/services/history/service_impl.go` with retention config hook on record. Added `repository_test.go`. `go test ./internal/storage/sqlite/history ./internal/services/history` passed. History stores execution metadata separately from saved requests; large response bodies not persisted in this pass (metadata-only strategy). Executor recording wiring pending.
 
 ## GUI / UI Workstreams
 
@@ -307,3 +310,9 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T02:32:30Z [kilo] P0-LOGGING-OBS: Implemented slog baseline + redaction helpers and structured error categories with tests; `go test ./internal/logging ./internal/observability/errors ./internal/config` passed, review.
 - 2026-11-14T02:33:00Z [mimo] P6-IMPORTERS: Claimed non-UI import pipeline (Postman/Insomnia importers + transactional collection import service); recorded storage linkage scope in task notes.
 - 2026-11-14T02:33:30Z [kilo] P1-HTTP-DOMAIN: Claimed next non-GUI task; implementing HTTP request/response domain models and validation.
+- 2026-11-14T02:34:30Z [kilo] P1-HTTP-DOMAIN: Added HTTP request/response domain models, settings, validation, and tests; `go test ./internal/domain/request ./internal/domain/response` passed, review.
+- 2026-11-14T02:35:30Z [kilo] P1-VARIABLE-RESOLUTION: Claimed; starting variable resolution pipeline implementation.
+- 2026-11-14T02:36:30Z [kilo] P1-VARIABLE-RESOLUTION: Implemented resolver/variable sets with precedence, interpolation, cycle/missing handling, secret metadata, and tests; `go test ./internal/domain/variable-resolution` passed, review.
+- 2026-11-14T02:38:00Z [kilo] P1-HTTP-TRANSPORT: Claimed; implementing transport adapter and request execution pipeline basics.
+- 2026-11-14T02:40:00Z [kilo] P1-HTTP-TRANSPORT: Implemented HTTP transport client and request executor with validation/resolution/cancel/result capture; `go test ./internal/transport/http ./internal/services/request` passed, review.
+- 2026-11-14T02:42:00Z [kilo] P1-HISTORY: Claimed; implementing execution history persistence and retention hooks.

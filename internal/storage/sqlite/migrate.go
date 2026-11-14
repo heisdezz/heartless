@@ -61,6 +61,89 @@ CREATE INDEX IF NOT EXISTS idx_variables_workspace_id ON variables(workspace_id)
 CREATE INDEX IF NOT EXISTS idx_variables_environment_id ON variables(environment_id);
 `,
 	},
+	{
+		version: 2,
+		name:    "workspace_active_environment",
+		up: `
+CREATE TABLE IF NOT EXISTS workspace_state (
+	workspace_id TEXT PRIMARY KEY,
+	active_environment_id TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL
+);
+`,
+	},
+	{
+		version: 3,
+		name:    "collections",
+		up: `
+CREATE TABLE IF NOT EXISTS collections (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_collections_workspace_id ON collections(workspace_id);
+
+CREATE TABLE IF NOT EXISTS folders (
+	id TEXT PRIMARY KEY,
+	collection_id TEXT NOT NULL DEFAULT '',
+	parent_id TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_folders_collection_id ON folders(collection_id);
+CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id);
+
+CREATE TABLE IF NOT EXISTS requests (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	collection_id TEXT NOT NULL DEFAULT '',
+	folder_id TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL DEFAULT '',
+	method TEXT NOT NULL DEFAULT '',
+	url TEXT NOT NULL DEFAULT '',
+	body TEXT NOT NULL DEFAULT '',
+	body_type TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_requests_workspace_id ON requests(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_requests_collection_id ON requests(collection_id);
+CREATE INDEX IF NOT EXISTS idx_requests_folder_id ON requests(folder_id);
+`,
+	},
+	{
+		version: 4,
+		name:    "execution_history",
+		up: `
+CREATE TABLE IF NOT EXISTS execution_history (
+	id TEXT PRIMARY KEY,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	request_id TEXT NOT NULL DEFAULT '',
+	method TEXT NOT NULL DEFAULT '',
+	url TEXT NOT NULL DEFAULT '',
+	status_code INTEGER NOT NULL DEFAULT 0,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_created ON execution_history(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_history_request_id ON execution_history(request_id);
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.

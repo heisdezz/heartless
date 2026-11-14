@@ -41,3 +41,24 @@ CREATE TABLE IF NOT EXISTS variables (
 
 CREATE INDEX IF NOT EXISTS idx_variables_workspace_id ON variables(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_variables_environment_id ON variables(environment_id);
+
+CREATE TABLE IF NOT EXISTS workspace_state (
+    workspace_id TEXT PRIMARY KEY,
+    active_environment_id TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS execution_history (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    status_code INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_created ON execution_history(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_history_request_id ON execution_history(request_id);
