@@ -104,14 +104,15 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
   - 2026-11-14T01:23:30Z: Added `modernc.org/sqlite` driver; `internal/storage/sqlite/db.go` (Open with WAL/busy_timeout for file DB, FK enforcement, ping, migrate-on-open, Tx helper, NowUTC); `internal/storage/sqlite/migrate.go` (embedded schema_migrations tracking/applied migrations, initial schema: workspaces/environments/variables + indexes); `migrations/0001_initial_schema.sql` reference copy. Implemented SQLite repositories: `internal/storage/sqlite/workspace`, `environment` (Save takes workspaceID), `variable` (Save takes id/workspaceID/environmentID) with CRUD/list basics; removed conflicting placeholder workspace repo. Added `internal/storage/sqlite/sqlite_test.go` (open/migrate/workspace+environment repo ops, FK pragma) — `go test ./internal/storage/sqlite` and `go build ./internal/storage/sqlite/...` passed. `go build ./...` still fails on pre-existing unrelated `internal/domain/variable-resolution` errors outside scope. Service-interface alignment/wiring and broader repository coverage pending.
 
 ### P0-STATE-SEPARATION: GUI/app/transient state separation
-- Status: todo
-- Owner:
-- Updated:
+- Status: review
+- Owner: kilo
+- Updated: 2026-11-14T02:48:00Z
 - Depends on: P0-APP-BOOTSTRAP
 - Allowed paths/scope: `internal/state/**`, `internal/screens/**`, GUI state packages
 - Acceptance: Replace placeholder state with purposeful GUI vs application/transient state structures; no domain persistence logic embedded in views.
 - Notes:
-  - 
+  - 2026-11-14T02:47:00Z: Claimed (next non-GUI task). Creating `internal/state/**` scaffolding for separated app/GUI/transient execution state; avoiding screen refactors in this pass.
+  - 2026-11-14T02:48:00Z: Replaced placeholder `internal/state/app_state.go` and added `gui_state.go`, `execution_state.go`: separated persistent-selection app state, GUI navigation/layout state, and transient execution/connection state models/helpers (no persistence/domain logic). `go build ./internal/state ./internal/app ./internal/screens ./internal/storage/sqlite/... .` passed. Existing screen-local state in `internal/screens` not yet migrated to these types.
 
 ### P0-LOGGING-OBS: Logging and redaction baseline
 - Status: review
@@ -316,3 +317,7 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T02:38:00Z [kilo] P1-HTTP-TRANSPORT: Claimed; implementing transport adapter and request execution pipeline basics.
 - 2026-11-14T02:40:00Z [kilo] P1-HTTP-TRANSPORT: Implemented HTTP transport client and request executor with validation/resolution/cancel/result capture; `go test ./internal/transport/http ./internal/services/request` passed, review.
 - 2026-11-14T02:42:00Z [kilo] P1-HISTORY: Claimed; implementing execution history persistence and retention hooks.
+- 2026-11-14T02:44:00Z [kilo] P1-HISTORY: Added history migration/repo/service with retention hooks and tests; `go test ./internal/storage/sqlite/history ./internal/services/history` passed, review.
+- 2026-11-14T02:46:00Z [kilo] P1-HISTORY/P1-HTTP-TRANSPORT/P0-LOGGING-OBS: Implementing follow-up non-GUI wiring (history recording in executor, logging bootstrap).
+- 2026-11-14T02:47:00Z [kilo] P0-STATE-SEPARATION: Claimed; implementing state separation scaffolding in `internal/state/**`.
+- 2026-11-14T02:48:00Z [kilo] P0-STATE-SEPARATION: Added app/gui/transient state scaffolding in `internal/state/**`; targeted builds passed, review (screen migration pending).
