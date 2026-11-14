@@ -117,13 +117,14 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 ### P0-LOGGING-OBS: Logging and redaction baseline
 - Status: review
 - Owner: kilo
-- Updated: 2026-11-14T02:32:30Z
+- Updated: 2026-11-14T02:50:00Z
 - Depends on: P0-APP-BOOTSTRAP
 - Allowed paths/scope: `internal/config/**`, logging/observability helpers, service instrumentation points
 - Acceptance: `log/slog` baseline configured; redaction policy/helpers for secrets/tokens; structured error categories scaffolded.
 - Notes:
   - 2026-11-14T02:31:00Z: Claimed (next non-GUI task). Implementing slog baseline, redaction helpers, and structured error categories in `internal/config`/logging packages.
   - 2026-11-14T02:32:30Z: Added `internal/logging` (redacting `slog.Handler` wrapper, sensitive key/pattern detection, `Config`/`New`/`SetupDefault`), `internal/config/logging.go` (`Logging` config + `SetupLogging`), and `internal/observability/errors` (categorized structured errors with wrap/fields/category helpers). Added tests for redaction and error categorization. `go test ./internal/logging ./internal/observability/errors ./internal/config` passed. App bootstrap/instrumentation wiring not yet applied.
+  - 2026-11-14T02:50:00Z: Wired baseline logging setup in app bootstrap (`internal/app.Open` calls `config.SetupLogging`). Added in-memory event bus impl/tests (`internal/events/bus.go`) and request executor history recording hook + history repo/service wiring in app (non-GUI). `go test ./internal/logging ./internal/observability/errors ./internal/config ./internal/events ./internal/services/request ./internal/storage/sqlite/history ./internal/app` passed. Deeper service-level instrumentation still pending.
 
 ## Phase 1 — HTTP Core
 

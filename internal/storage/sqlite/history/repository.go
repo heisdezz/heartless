@@ -19,6 +19,11 @@ func New(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// Record persists an execution history entry (alias for Save, satisfies recorder interfaces).
+func (r *Repository) Record(ctx context.Context, entry *domain.Entry) error {
+	return r.Save(ctx, entry)
+}
+
 func (r *Repository) Save(ctx context.Context, entry *domain.Entry) error {
 	if entry == nil {
 		return errors.New("history entry is nil")
