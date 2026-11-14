@@ -29,6 +29,7 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 	wsOpen := ui.Local(row, "workspaceMenu", func() bool { return false })
 	row.
 		Height(h).
+		MinWidth(0).
 		Padding(0, bar.Right+12, 0, bar.Left+12).
 		AlignItems(ui.Center).
 		Gap(8).

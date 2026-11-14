@@ -267,14 +267,15 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 ## Phase 6 — Interoperability
 
 ### P6-IMPORTERS: Collection import pipeline (non-UI)
-- Status: in_progress
+- Status: review
 - Owner: mimo
-- Updated: 2026-11-14T02:33:00Z
+- Updated: 2026-11-14T03:28:00Z
 - Depends on: P0-DOMAIN-MODELS, P0-SERVICE-INTERFACES, P0-STORAGE-SQLITE
 - Allowed paths/scope: `internal/importer/**` (new), `internal/services/importer/**` (new), `internal/storage/sqlite/collection/**`, `internal/storage/sqlite/migrate.go`, tests under those paths
 - Acceptance: Postman (v2.0/v2.1) and Insomnia (v4/v5) sources detected, parsed into a normalized draft, validated, conflict-checked, and persisted transactionally as collections/folders/requests (including headers/params) into a target workspace; unsupported/conflicting data reported as issues; no GUI dependencies; targeted `go build`/`go test`/`go vet` pass.
 - Notes:
   - 2026-11-14T02:33:00Z: Claimed next non-UI task. Scope linkage recorded per rule 3 before touching P0-STORAGE-SQLITE-owned files: `internal/storage/sqlite/migrate.go` (register migration v4 adding `requests.headers`/`requests.params`) and `internal/storage/sqlite/collection/repository.go` (persist headers/params, extract save helpers, add atomic `ImportBatch`). Additions limited to import persistence; existing method signatures unchanged.
+  - 2026-11-14T03:28:00Z: Implementation complete, set to review. Supersedes the "migration v4" wording above: another agent took v4 (`execution_history`) concurrently, so the headers/params migration was added as **v5 `request_headers_params`**. Added: `internal/importer` (format-neutral `Draft`/`Item`/`Issue`/`Importer` contract + `Select` + `Text`/`Description` helpers), `internal/importer/postman` (v2.0/v2.1: nested folders, string/object URLs, query+path params, headers, raw/urlencoded/formdata/graphql bodies; auth/scripts/collection-variables/file-bodies reported as issues), `internal/importer/insomnia` (v4 `resources` + v5 `collection` exports; grpc/websocket/environment/api-spec/auth reported as issues, orphan detection). Exported service contract: `internal/services/importer` — `New(Deps{Workspaces, Collections, Importers})`, `Service.Import(ctx, workspaceID, data, Options) (*Result, error)` with `ConflictPolicy` rename/skip, sentinel errors `ErrUnsupportedFormat`/`ErrWorkspaceNotFound`/`ErrEmptyImport`, `Result{Format, Collections, Folders, Requests, CreatedIDs, Issues}`; normalization: default names, method uppercased/`GET`, kind validation, enabled-only headers/params with first-wins duplicate warnings. Storage linkage (declared scope): migration v5 in `internal/storage/sqlite/migrate.go`; `internal/storage/sqlite/collection/repository.go` persists `headers`/`params` JSON (`encodeNV`/`decodeNV`, Save/Get/List) with Save* bodies extracted over an `execer` interface; new `batch.go` `Repository.ImportBatch` writes collections/folders/requests in one `sqlite.Tx`. Verification: `go build ./...` pass; `go test ./internal/importer/... ./internal/services/importer/... ./internal/storage/sqlite/...` pass (adapter fixtures, service unit fakes + SQLite integration incl. conflict rename and rollback); `go vet` on touched packages pass. Follow-ups (out of scope): wire into `app.Services` (P0-APP-BOOTSTRAP), environment/variable + auth import (currently reported as issues), OpenAPI/native/curl importers, `docs/features/import-export.md` update; pre-existing root `main_test.go` compile failure (`undefined: lo`) untouched.
 
 ## Activity Log (append-only)
 
@@ -323,3 +324,8 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T02:46:00Z [kilo] P1-HISTORY/P1-HTTP-TRANSPORT/P0-LOGGING-OBS: Implementing follow-up non-GUI wiring (history recording in executor, logging bootstrap).
 - 2026-11-14T02:47:00Z [kilo] P0-STATE-SEPARATION: Claimed; implementing state separation scaffolding in `internal/state/**`.
 - 2026-11-14T02:48:00Z [kilo] P0-STATE-SEPARATION: Added app/gui/transient state scaffolding in `internal/state/**`; targeted builds passed, review (screen migration pending).
+- 2026-11-14T02:50:00Z [kilo] P0-LOGGING-OBS: Wired logging bootstrap in app and non-GUI execution/history/event-bus hooks; tests passed, review.
+- 2026-11-14T02:47:00Z [kilo] P0-STATE-SEPARATION: Claimed; implementing state separation scaffolding in `internal/state/**`.
+- 2026-11-14T02:48:00Z [kilo] P0-STATE-SEPARATION: Added app/gui/transient state scaffolding in `internal/state/**`; targeted builds passed, review (screen migration pending).
+- 2026-11-14T03:29:30Z [mimo] P6-IMPORTERS: Implemented Postman/Insomnia importers, import service (detect→parse→normalize→conflict-resolve→atomic persist), migration v5 `requests.headers`/`params` + `ImportBatch`; `go build ./...`, targeted `go test`, `go vet` pass; review.
+- 2026-11-14T03:34:54Z [mimo] P6-IMPORTERS: Docs follow-up — added "Implemented (P6-IMPORTERS)" and remaining-work sections to `docs/features/import-export.md` (doc-only; no code changes).

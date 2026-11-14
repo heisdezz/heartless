@@ -4,6 +4,7 @@ import (
 	"context"
 
 	domain "heartless/internal/domain/workspace"
+	col "heartless/internal/domain/collection"
 )
 
 // Repository defines persistence operations for workspaces.
@@ -26,4 +27,10 @@ type Service interface {
 	List(ctx context.Context) ([]*domain.Workspace, error)
 	GetActiveEnvironmentID(ctx context.Context, workspaceID string) (string, error)
 	SetActiveEnvironmentID(ctx context.Context, workspaceID, environmentID string) error
+	// Collection methods
+	GetCollections(ctx context.Context, workspaceID string) ([]*col.Collection, error)
+	GetCollection(ctx context.Context, id string) (*col.Collection, error)
+	CreateCollection(ctx context.Context, workspaceID, name string) (*col.Collection, error)
+	UpdateCollection(ctx context.Context, col *col.Collection) error
+	DeleteCollection(ctx context.Context, id string) error
 }

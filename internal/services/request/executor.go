@@ -126,6 +126,9 @@ func (e *Executor) record(ctx context.Context, req *domain.Request, result *resp
 	entry.URL = req.URL
 	if result.Response != nil {
 		entry.StatusCode = result.Response.StatusCode
+		// Keep the body, headers and metadata so the result is reproducible
+		// from the database.
+		entry.Response = result.Response
 	}
 	entry.DurationMS = result.Duration.Milliseconds()
 	if result.Error != nil {

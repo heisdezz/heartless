@@ -3,12 +3,21 @@ package collection
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	domain "heartless/internal/domain/collection"
 	"heartless/internal/domain/request"
 )
+
+// execer is the subset of database operations shared by *sql.DB and *sql.Tx,
+// so save helpers can run standalone or inside a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
 
 // Repository provides SQLite persistence for collections, folders, and requests.
 type Repository struct {
@@ -26,6 +35,11 @@ func (r *Repository) GetCollection(ctx context.Context, id string) (*domain.Coll
 }
 
 func (r *Repository) SaveCollection(ctx context.Context, col *domain.Collection) error {
+	return saveCollection(ctx, r.db, col)
+}
+
+// saveCollection writes a collection through ex, which may be a transaction.
+func saveCollection(ctx context.Context, ex execer, col *domain.Collection) error {
 	if col == nil {
 		return errors.New("collection is nil")
 	}
@@ -33,7 +47,7 @@ func (r *Repository) SaveCollection(ctx context.Context, col *domain.Collection)
 		col.CreatedAt = time.Now().UTC()
 	}
 	col.UpdatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `
+	_, err := ex.ExecContext(ctx, `
 INSERT INTO collections (id, workspace_id, name, description, sort_order, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
@@ -81,6 +95,11 @@ func (r *Repository) GetFolder(ctx context.Context, id string) (*domain.Folder, 
 }
 
 func (r *Repository) SaveFolder(ctx context.Context, folder *domain.Folder) error {
+	return saveFolder(ctx, r.db, folder)
+}
+
+// saveFolder writes a folder through ex, which may be a transaction.
+func saveFolder(ctx context.Context, ex execer, folder *domain.Folder) error {
 	if folder == nil {
 		return errors.New("folder is nil")
 	}
@@ -88,7 +107,7 @@ func (r *Repository) SaveFolder(ctx context.Context, folder *domain.Folder) erro
 		folder.CreatedAt = time.Now().UTC()
 	}
 	folder.UpdatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `
+	_, err := ex.ExecContext(ctx, `
 INSERT INTO folders (id, collection_id, parent_id, name, description, sort_order, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
@@ -132,11 +151,17 @@ func (r *Repository) ListFolders(ctx context.Context, collectionID string) ([]*d
 }
 
 func (r *Repository) GetRequest(ctx context.Context, id string) (*request.Request, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, sort_order, created_at, updated_at FROM requests WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx, `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, headers, params, sort_order, created_at, updated_at FROM requests WHERE id = ?`, id)
 	return scanRequest(row)
 }
 
 func (r *Repository) SaveRequest(ctx context.Context, req *request.Request) error {
+	return saveRequest(ctx, r.db, req)
+}
+
+// saveRequest writes a saved request (including headers and params as JSON)
+// through ex, which may be a transaction.
+func saveRequest(ctx context.Context, ex execer, req *request.Request) error {
 	if req == nil {
 		return errors.New("request is nil")
 	}
@@ -144,9 +169,17 @@ func (r *Repository) SaveRequest(ctx context.Context, req *request.Request) erro
 		req.CreatedAt = time.Now().UTC()
 	}
 	req.UpdatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `
-INSERT INTO requests (id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, sort_order, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	headers, err := encodeNV(req.Headers)
+	if err != nil {
+		return fmt.Errorf("encode request headers: %w", err)
+	}
+	params, err := encodeNV(req.Params)
+	if err != nil {
+		return fmt.Errorf("encode request params: %w", err)
+	}
+	_, err = ex.ExecContext(ctx, `
+INSERT INTO requests (id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, headers, params, sort_order, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	workspace_id = excluded.workspace_id,
 	collection_id = excluded.collection_id,
@@ -158,9 +191,11 @@ ON CONFLICT(id) DO UPDATE SET
 	url = excluded.url,
 	body = excluded.body,
 	body_type = excluded.body_type,
+	headers = excluded.headers,
+	params = excluded.params,
 	sort_order = excluded.sort_order,
 	updated_at = excluded.updated_at
-`, req.ID, req.WorkspaceID, req.CollectionID, req.FolderID, req.Name, req.Description, string(req.Kind), req.Method, req.URL, req.Body, req.BodyType, req.SortOrder, formatTime(req.CreatedAt), formatTime(req.UpdatedAt))
+`, req.ID, req.WorkspaceID, req.CollectionID, req.FolderID, req.Name, req.Description, string(req.Kind), req.Method, req.URL, req.Body, req.BodyType, headers, params, req.SortOrder, formatTime(req.CreatedAt), formatTime(req.UpdatedAt))
 	return err
 }
 
@@ -169,7 +204,7 @@ func (r *Repository) DeleteRequest(ctx context.Context, id string) error {
 }
 
 func (r *Repository) ListRequests(ctx context.Context, workspaceID, collectionID, folderID string) ([]*request.Request, error) {
-	query := `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, sort_order, created_at, updated_at FROM requests WHERE 1=1`
+	query := `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, headers, params, sort_order, created_at, updated_at FROM requests WHERE 1=1`
 	args := []any{}
 	if workspaceID != "" {
 		query += ` AND workspace_id = ?`
@@ -250,18 +285,55 @@ func scanFolder(s scanner) (*domain.Folder, error) {
 
 func scanRequest(s scanner) (*request.Request, error) {
 	var req request.Request
-	var kind string
+	var kind, headers, params string
 	var createdAt, updatedAt string
-	if err := s.Scan(&req.ID, &req.WorkspaceID, &req.CollectionID, &req.FolderID, &req.Name, &req.Description, &kind, &req.Method, &req.URL, &req.Body, &req.BodyType, &req.SortOrder, &createdAt, &updatedAt); err != nil {
+	if err := s.Scan(&req.ID, &req.WorkspaceID, &req.CollectionID, &req.FolderID, &req.Name, &req.Description, &kind, &req.Method, &req.URL, &req.Body, &req.BodyType, &headers, &params, &req.SortOrder, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRequestNotFound
 		}
 		return nil, err
 	}
+	decoded, err := decodeNV(headers)
+	if err != nil {
+		return nil, fmt.Errorf("request %s headers: %w", req.ID, err)
+	}
+	req.Headers = decoded
+	decoded, err = decodeNV(params)
+	if err != nil {
+		return nil, fmt.Errorf("request %s params: %w", req.ID, err)
+	}
+	req.Params = decoded
 	req.Kind = request.Kind(kind)
 	req.CreatedAt = parseTime(createdAt)
 	req.UpdatedAt = parseTime(updatedAt)
 	return &req, nil
+}
+
+// encodeNV serializes a name/value map for storage; empty maps become "{}".
+func encodeNV(m map[string]string) (string, error) {
+	if len(m) == 0 {
+		return "{}", nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// decodeNV parses a stored name/value map, tolerating empty input.
+func decodeNV(s string) (map[string]string, error) {
+	m := make(map[string]string)
+	if strings.TrimSpace(s) == "" {
+		return m, nil
+	}
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		m = make(map[string]string)
+	}
+	return m, nil
 }
 
 const timeLayout = "2006-01-02T15:04:05Z"

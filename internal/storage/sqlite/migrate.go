@@ -144,6 +144,25 @@ CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_created ON execution_
 CREATE INDEX IF NOT EXISTS idx_execution_history_request_id ON execution_history(request_id);
 `,
 	},
+	{
+		version: 5,
+		name:    "request_headers_params",
+		up: `
+ALTER TABLE requests ADD COLUMN headers TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE requests ADD COLUMN params TEXT NOT NULL DEFAULT '{}';
+`,
+	},
+	{
+		version: 6,
+		name:    "history_response_payload",
+		up: `
+ALTER TABLE execution_history ADD COLUMN status_text TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_history ADD COLUMN response_headers TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE execution_history ADD COLUMN body TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_history ADD COLUMN content_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_history ADD COLUMN size INTEGER NOT NULL DEFAULT 0;
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.

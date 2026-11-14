@@ -3,7 +3,9 @@ package screens
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lobehub/lobe-mygo/pkg/action"
@@ -12,7 +14,10 @@ import (
 	"github.com/lobehub/lobe-mygo/pkg/theme"
 
 	"heartless/internal/app"
+	domaincol "heartless/internal/domain/collection"
 	domainenv "heartless/internal/domain/environment"
+	domainreq "heartless/internal/domain/request"
+	domainres "heartless/internal/domain/response"
 	domainvar "heartless/internal/domain/variable"
 	domainws "heartless/internal/domain/workspace"
 )
@@ -22,6 +27,33 @@ import (
 type varDraft struct {
 	Name  string
 	Value string
+}
+
+// requestState is one open request's editor and response. Each request has
+// its own, so a pending execution never affects another request's pane.
+type requestState struct {
+	Method string
+	URL    string
+	Body   string
+	Tab    int // 0 Params, 1 Headers, 2 Body
+
+	Params  []*kv // editable param rows
+	Headers []*kv // editable header rows
+
+	running     bool
+	cancel      context.CancelFunc
+	response    *domainres.ExecutionResult
+	error       string
+	ResponseTab int
+	sentBody    string
+	copyNotice  string
+}
+
+// kv is one editable key/value row.
+type kv struct {
+	Key   string
+	Value string
+	On    bool
 }
 
 // shellState holds mutable state for the shell UI.
@@ -36,6 +68,11 @@ type shellState struct {
 	environments []domainenv.Environment
 	variables    []domainvar.Variable
 
+	collections []domaincol.Collection
+	folders     []domaincol.Folder
+	requests    []domainreq.Request
+	expanded    map[string]bool // collection/folder IDs whose children show
+
 	loaded bool
 	err    string
 
@@ -49,6 +86,15 @@ type shellState struct {
 	newVarName  string
 	newVarValue string
 	varDrafts   map[string]*varDraft
+
+	selectedRequestID string
+	renameRequestID   string
+	renameValue       string
+	searchQuery       string
+
+	// requestStates keeps each open request's editor and response, keyed by
+	// request ID. They are isolated from one another.
+	requestStates map[string]*requestState
 
 	nextID int
 }
@@ -117,12 +163,25 @@ func (s *shellState) varDraft(v domainvar.Variable) *varDraft {
 }
 
 // openEnvironment selects envID and opens its detail page.
-func (s *shellState) openEnvironment(envID string) {
-	s.environmentID = envID
+func (s *shellState) openEnvironment(envID string, services *app.Services) {
+	s.setActiveEnvironment(context.Background(), services, envID)
 	s.router.Push("/environments/" + envID)
 }
 
-// selectWorkspace makes id the active workspace, resetting the environment.
+func (s *shellState) setActiveEnvironment(ctx context.Context, services *app.Services, envID string) {
+	if s.workspaceID == "" {
+		s.environmentID = ""
+		return
+	}
+	s.environmentID = envID
+	if services != nil {
+		if err := services.Workspaces.SetActiveEnvironmentID(ctx, s.workspaceID, envID); err != nil {
+			s.err = err.Error()
+		}
+	}
+}
+
+// selectWorkspace makes id the active workspace and restores its persisted active environment.
 func (s *shellState) selectWorkspace(id string, services *app.Services) {
 	s.workspaceID = id
 	s.environmentID = ""
@@ -171,7 +230,10 @@ func (s *shellState) reload(ctx context.Context, services *app.Services) error {
 	} else {
 		s.workspaceID = ""
 	}
-	return s.reloadEnvironments(ctx, services)
+	if err := s.reloadEnvironments(ctx, services); err != nil {
+		return err
+	}
+	return s.reloadTree(ctx, services)
 }
 
 func (s *shellState) reloadEnvironments(ctx context.Context, services *app.Services) error {
@@ -191,15 +253,19 @@ func (s *shellState) reloadEnvironments(ctx context.Context, services *app.Servi
 			s.environments = append(s.environments, *env)
 		}
 	}
-	found := false
-	for _, env := range s.environments {
-		if env.ID == s.environmentID {
-			found = true
-			break
-		}
+
+	activeID, err := services.Workspaces.GetActiveEnvironmentID(ctx, s.workspaceID)
+	if err != nil {
+		return err
 	}
-	if !found {
-		s.environmentID = ""
+	s.environmentID = ""
+	if activeID != "" {
+		for _, env := range s.environments {
+			if env.ID == activeID {
+				s.environmentID = activeID
+				break
+			}
+		}
 	}
 	return s.reloadVariables(ctx, services)
 }
@@ -222,6 +288,478 @@ func (s *shellState) reloadVariables(ctx context.Context, services *app.Services
 	return nil
 }
 
+// reloadTree reloads the workspace's collections, folders and saved requests.
+func (s *shellState) reloadTree(ctx context.Context, services *app.Services) error {
+	if services == nil || s.workspaceID == "" {
+		s.collections = nil
+		s.folders = nil
+		s.requests = nil
+		return nil
+	}
+	cols, err := services.Collections.ListCollections(ctx, s.workspaceID)
+	if err != nil {
+		return err
+	}
+	s.collections = s.collections[:0]
+	for _, col := range cols {
+		if col != nil {
+			s.collections = append(s.collections, *col)
+		}
+	}
+
+	s.folders = nil
+	s.requests = nil
+	for _, col := range s.collections {
+		folders, err := services.Collections.ListFolders(ctx, col.ID)
+		if err != nil {
+			return err
+		}
+		for _, f := range folders {
+			if f != nil {
+				s.folders = append(s.folders, *f)
+			}
+		}
+		reqs, err := services.Collections.ListRequests(ctx, s.workspaceID, col.ID, "")
+		if err != nil {
+			return err
+		}
+		for _, r := range reqs {
+			if r != nil {
+				s.requests = append(s.requests, *r)
+			}
+		}
+	}
+	if s.expanded == nil {
+		s.expanded = make(map[string]bool)
+	}
+	return nil
+}
+
+// isExpanded reports whether a collection or folder's children show. It
+// defaults to open so a new tree shows its contents.
+func (s *shellState) isExpanded(id string) bool {
+	if s.expanded == nil {
+		return true
+	}
+	open, ok := s.expanded[id]
+	if !ok {
+		return true
+	}
+	return open
+}
+
+// toggleExpanded flips a collection or folder's expanded state.
+func (s *shellState) toggleExpanded(id string) {
+	if s.expanded == nil {
+		s.expanded = make(map[string]bool)
+	}
+	s.expanded[id] = !s.expanded[id]
+}
+
+// setExpanded opens or closes a collection or folder.
+func (s *shellState) setExpanded(id string, open bool) {
+	if s.expanded == nil {
+		s.expanded = make(map[string]bool)
+	}
+	s.expanded[id] = open
+}
+
+// childFolders returns the folders directly under parentID in colID, with an
+// empty parentID naming a top-level folder.
+func (s *shellState) childFolders(colID, parentID string) []domaincol.Folder {
+	var out []domaincol.Folder
+	for _, f := range s.folders {
+		if f.CollectionID == colID && f.ParentID == parentID {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// childRequests returns the requests directly in colID's folderID, with an
+// empty folderID naming the collection root.
+func (s *shellState) childRequests(colID, folderID string) []domainreq.Request {
+	var out []domainreq.Request
+	for _, r := range s.requests {
+		if r.CollectionID == colID && r.FolderID == folderID {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// createCollection adds a top-level collection with an unused default name.
+func (s *shellState) createCollection(services *app.Services) {
+	if s.workspaceID == "" || services == nil {
+		return
+	}
+	col := domaincol.New(s.workspaceID, s.nextCollectionName())
+	if err := services.Collections.SaveCollection(context.Background(), col); err != nil {
+		s.err = err.Error()
+		return
+	}
+	s.setExpanded(col.ID, true)
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// nextCollectionName returns the first unused "Collection N" name.
+func (s *shellState) nextCollectionName() string {
+	used := map[string]bool{}
+	for _, col := range s.collections {
+		used[col.Name] = true
+	}
+	for n := 1; ; n++ {
+		name := "Collection " + strconv.Itoa(n)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
+// createFolder adds a folder under colID, or under parentID within it.
+func (s *shellState) createFolder(services *app.Services, colID, parentID string) {
+	col, ok := s.collectionByID(colID)
+	if !ok || services == nil {
+		return
+	}
+	name := s.nextFolderName(col.ID)
+	folder := domaincol.NewFolder(col.ID, parentID, name)
+	if err := services.Collections.SaveFolder(context.Background(), folder); err != nil {
+		s.err = err.Error()
+		return
+	}
+	s.setExpanded(col.ID, true)
+	if parentID != "" {
+		s.setExpanded(parentID, true)
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// createRequest adds a request under colID, or under folderID within it.
+func (s *shellState) createRequest(services *app.Services, colID, folderID string, kind domainreq.Kind, name string) {
+	col, ok := s.collectionByID(colID)
+	if !ok || services == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = s.nextRequestName(col.ID, kind)
+	}
+	req := domainreq.New(s.workspaceID, name, kind)
+	req.CollectionID = col.ID
+	req.FolderID = folderID
+	if kind == domainreq.KindHTTP {
+		req.Method = "GET"
+	}
+	if err := services.Collections.SaveRequest(context.Background(), req); err != nil {
+		s.err = err.Error()
+		return
+	}
+	s.setExpanded(col.ID, true)
+	if folderID != "" {
+		s.setExpanded(folderID, true)
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// deleteCollection removes a collection and everything under it.
+func (s *shellState) deleteCollection(services *app.Services, id string) {
+	if services == nil {
+		return
+	}
+	for _, r := range s.childRequests(id, "") {
+		_ = services.Collections.DeleteRequest(context.Background(), r.ID)
+	}
+	for _, f := range s.folders {
+		if f.CollectionID == id {
+			for _, r := range s.childRequests(id, f.ID) {
+				_ = services.Collections.DeleteRequest(context.Background(), r.ID)
+			}
+			_ = services.Collections.DeleteFolder(context.Background(), f.ID)
+		}
+	}
+	if err := services.Collections.DeleteCollection(context.Background(), id); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// deleteFolder removes a folder and the requests directly inside it.
+func (s *shellState) deleteFolder(services *app.Services, id string) {
+	if services == nil {
+		return
+	}
+	folder, ok := s.folderByID(id)
+	if !ok {
+		return
+	}
+	for _, r := range s.childRequests(folder.CollectionID, id) {
+		_ = services.Collections.DeleteRequest(context.Background(), r.ID)
+	}
+	if err := services.Collections.DeleteFolder(context.Background(), id); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// deleteRequest removes one saved request.
+func (s *shellState) deleteRequest(services *app.Services, id string) {
+	if services == nil {
+		return
+	}
+	if err := services.Collections.DeleteRequest(context.Background(), id); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// renameCollection saves a new collection name.
+func (s *shellState) renameCollection(services *app.Services, id, name string) {
+	name = strings.TrimSpace(name)
+	col, ok := s.collectionByID(id)
+	if !ok || services == nil || name == "" {
+		return
+	}
+	col.Name = name
+	if err := services.Collections.SaveCollection(context.Background(), &col); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// renameFolder saves a new folder name.
+func (s *shellState) renameFolder(services *app.Services, id, name string) {
+	name = strings.TrimSpace(name)
+	folder, ok := s.folderByID(id)
+	if !ok || services == nil || name == "" {
+		return
+	}
+	folder.Name = name
+	if err := services.Collections.SaveFolder(context.Background(), &folder); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// renameRequest saves a new request name.
+func (s *shellState) renameRequest(services *app.Services, id, name string) {
+	name = strings.TrimSpace(name)
+	req, ok := s.requestByID(id)
+	if !ok || services == nil || name == "" {
+		return
+	}
+	req.Name = name
+	if err := services.Collections.SaveRequest(context.Background(), &req); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// setRequestMethod updates a saved request's HTTP method.
+func (s *shellState) setRequestMethod(services *app.Services, id, method string) {
+	req, ok := s.requestByID(id)
+	if !ok || services == nil {
+		return
+	}
+	req.Method = strings.ToUpper(strings.TrimSpace(method))
+	if err := services.Collections.SaveRequest(context.Background(), &req); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// duplicateRequest copies a saved request into the same folder.
+func (s *shellState) duplicateRequest(services *app.Services, id string) {
+	req, ok := s.requestByID(id)
+	if !ok || services == nil {
+		return
+	}
+	copy := req
+	copy.ID = ""
+	copy.Name = req.Name + " (copy)"
+	copy.CreatedAt = time.Time{}
+	if err := services.Collections.SaveRequest(context.Background(), &copy); err != nil {
+		s.err = err.Error()
+		return
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// duplicateFolder copies a folder and the requests directly inside it.
+func (s *shellState) duplicateFolder(services *app.Services, id string) {
+	folder, ok := s.folderByID(id)
+	if !ok || services == nil {
+		return
+	}
+	copy := folder
+	copy.ID = ""
+	copy.Name = folder.Name + " (copy)"
+	copy.CreatedAt = time.Time{}
+	if err := services.Collections.SaveFolder(context.Background(), &copy); err != nil {
+		s.err = err.Error()
+		return
+	}
+	for _, r := range s.childRequests(folder.CollectionID, id) {
+		rc := r
+		rc.ID = ""
+		rc.FolderID = copy.ID
+		rc.CreatedAt = time.Time{}
+		_ = services.Collections.SaveRequest(context.Background(), &rc)
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// duplicateCollection copies a collection with its folders and requests.
+func (s *shellState) duplicateCollection(services *app.Services, id string) {
+	col, ok := s.collectionByID(id)
+	if !ok || services == nil {
+		return
+	}
+	copy := col
+	copy.ID = ""
+	copy.Name = col.Name + " (copy)"
+	copy.CreatedAt = time.Time{}
+	if err := services.Collections.SaveCollection(context.Background(), &copy); err != nil {
+		s.err = err.Error()
+		return
+	}
+	for _, f := range s.folders {
+		if f.CollectionID == id {
+			fc := f
+			fc.ID = ""
+			fc.CollectionID = copy.ID
+			fc.CreatedAt = time.Time{}
+			_ = services.Collections.SaveFolder(context.Background(), &fc)
+		}
+	}
+	for _, r := range s.requests {
+		if r.CollectionID == id {
+			rc := r
+			rc.ID = ""
+			rc.CollectionID = copy.ID
+			rc.CreatedAt = time.Time{}
+			_ = services.Collections.SaveRequest(context.Background(), &rc)
+		}
+	}
+	if err := s.reloadTree(context.Background(), services); err != nil {
+		s.err = err.Error()
+	}
+}
+
+// openCollectionSettings opens the settings page for a collection.
+func (s *shellState) openCollectionSettings(colID string) {
+	s.selectedRequestID = ""
+	s.router.Push("/collections/" + colID + "/settings")
+}
+
+// beginRename shows an inline name field for a request.
+func (s *shellState) beginRename(req domainreq.Request) {
+	s.selectedRequestID = req.ID
+	s.renameRequestID = req.ID
+	s.renameValue = req.Name
+}
+
+func (s *shellState) collectionByID(id string) (domaincol.Collection, bool) {
+	for _, col := range s.collections {
+		if col.ID == id {
+			return col, true
+		}
+	}
+	return domaincol.Collection{}, false
+}
+
+func (s *shellState) folderByID(id string) (domaincol.Folder, bool) {
+	for _, f := range s.folders {
+		if f.ID == id {
+			return f, true
+		}
+	}
+	return domaincol.Folder{}, false
+}
+
+func (s *shellState) requestByID(id string) (domainreq.Request, bool) {
+	for _, r := range s.requests {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return domainreq.Request{}, false
+}
+
+// nextFolderName returns the first unused "Folder N" name in a collection.
+func (s *shellState) nextFolderName(colID string) string {
+	used := map[string]bool{}
+	for _, f := range s.folders {
+		if f.CollectionID == colID {
+			used[f.Name] = true
+		}
+	}
+	for n := 1; ; n++ {
+		name := "Folder " + strconv.Itoa(n)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
+// nextRequestName returns the first unused "<Kind> N" name in a collection.
+func (s *shellState) nextRequestName(colID string, kind domainreq.Kind) string {
+	used := map[string]bool{}
+	for _, r := range s.requests {
+		if r.CollectionID == colID {
+			used[r.Name] = true
+		}
+	}
+	base := "New request"
+	switch kind {
+	case domainreq.KindHTTP:
+		base = "HTTP"
+	case domainreq.KindGraphQL:
+		base = "GraphQL"
+	case domainreq.KindGRPC:
+		base = "gRPC"
+	case domainreq.KindWebSocket:
+		base = "WebSocket"
+	}
+	for n := 1; ; n++ {
+		name := base + " " + strconv.Itoa(n)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
 // App renders the main application view.
 func App(c *ui.Context, services *app.Services) {
 	tk := theme.TokensOf(c)
@@ -238,7 +776,7 @@ func App(c *ui.Context, services *app.Services) {
 
 	root.Children(func() {
 		titleBar(c, tk, st, services)
-		ui.Row(c).Grow(1).Basis(0).AlignItems(ui.Stretch).Children(func() {
+		ui.Row(c).Grow(1).Basis(0).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
 			sidebar(c, st, tk, services)
 			mainContent(c, tk, st, services)
 		})
@@ -255,7 +793,7 @@ func mainContent(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 			switch {
 			case r.Match("/"):
 				r.Title("Home")
-				workspaceView(c, tk, st)
+				workspaceView(c, tk, st, services)
 			case r.Match("/settings"):
 				r.Title("Settings")
 				settingsView(c, tk)
@@ -276,8 +814,16 @@ func mainContent(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 	})
 }
 
-func workspaceView(c *ui.Context, tk *theme.Tokens, st *shellState) {
-	ui.Column(c).Fill().Children(func() {
+// workspaceView shows the selected request's panes, or a hint when none is
+// selected.
+func workspaceView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
+	ui.Column(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).Fill().MinWidth(0).Children(func() {
+		if req, ok := st.selectedRequest(); ok {
+			contextHeader(c, tk, req.Name)
+			requestPane(c, tk, st, services, req)
+			return
+		}
+
 		title := "No request selected"
 		if ws, ok := st.currentWorkspace(); ok {
 			title = ws.Name
@@ -297,6 +843,14 @@ func workspaceView(c *ui.Context, tk *theme.Tokens, st *shellState) {
 			pane(c, tk, "Response", "Send a request to see the response.")
 		})
 	})
+}
+
+// selectedRequest returns the request the pane is showing, if any.
+func (s *shellState) selectedRequest() (domainreq.Request, bool) {
+	if s.selectedRequestID == "" {
+		return domainreq.Request{}, false
+	}
+	return s.requestByID(s.selectedRequestID)
 }
 
 // variablesView lists workspace-scoped variables and creates new ones.
@@ -396,12 +950,13 @@ func (s *shellState) createEnvironment(services *app.Services) {
 		s.err = err.Error()
 		return
 	}
-	s.environmentID = env.ID
 	s.newEnvName = ""
 	s.err = ""
 	if err := s.reloadEnvironments(context.Background(), services); err != nil {
 		s.err = err.Error()
+		return
 	}
+	s.setActiveEnvironment(context.Background(), services, env.ID)
 }
 
 // createEnvironmentVariable adds a variable scoped to envID from the new

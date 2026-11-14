@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -37,8 +38,15 @@ func newTestServices(t *testing.T) *app.Services {
 	return services
 }
 
-// TestEnvironmentPageOpens checks the title bar breadcrumb and that the
-// environments list opens an environment's detail page.
+// settle advances the clock past the router's slide so the leaving page is
+// gone and clicks hit the page shown.
+func settle(tt *ui.Tester) {
+	tt.Advance(500 * time.Millisecond)
+	tt.Frame()
+}
+
+// TestEnvironmentPageOpens checks that the environments index lists the
+// workspace's environments and opens one.
 func TestEnvironmentPageOpens(t *testing.T) {
 	services := newTestServices(t)
 	tt := ui.NewTester(func(c *ui.Context) { App(c, services) }, 1000, 700)
@@ -47,21 +55,18 @@ func TestEnvironmentPageOpens(t *testing.T) {
 		t.Fatalf("title bar texts %q", tt.Texts())
 	}
 
-	// Open the environments index from the environment label.
 	if err := tt.Click("No environment"); err != nil {
-		// A first workspace is auto-selected; the label reads the active env.
-		if err := tt.Click("Global Variables"); err != nil {
-			t.Fatalf("open environments: %v", err)
-		}
+		t.Fatalf("open environments: %v", err)
 	}
-	if !tt.HasText("Manage the variables each environment sends with your requests.") {
+	settle(tt)
+	if !tt.HasText("Manage the variables each environment sends with your requests.") || !tt.HasText("Global Variables") {
 		t.Fatalf("index not shown, texts %q", tt.Texts())
 	}
 
-	// Open the environment card.
-	if err := tt.Click("Open"); err != nil {
+	if err := tt.Click("Global Variables"); err != nil {
 		t.Fatalf("open environment: %v", err)
 	}
+	settle(tt)
 	if !tt.HasText("Variables defined here are available while this environment is active.") {
 		t.Fatalf("detail not shown, texts %q", tt.Texts())
 	}
@@ -73,12 +78,6 @@ func TestEnvironmentVariableCreate(t *testing.T) {
 	services := newTestServices(t)
 	ctx := context.Background()
 
-	st := shellState{router: ui.NewRouter("/environments/env-1")}
-	st.load(ctx, services)
-	tt := ui.NewTester(func(c *ui.Context) { App(c, services) }, 1000, 700)
-	_ = tt
-
-	// Drive the state helper directly: it is what the Add button calls.
 	s := &shellState{workspaceID: "ws-1", environmentID: "env-1", newVarName: "baseUrl", newVarValue: "https://x.test"}
 	s.createEnvironmentVariable(services, "env-1")
 
@@ -91,5 +90,24 @@ func TestEnvironmentVariableCreate(t *testing.T) {
 	}
 	if vars[0].Name != "baseUrl" || vars[0].Value != "https://x.test" || vars[0].EnvironmentID != "env-1" {
 		t.Fatalf("variable = %+v", *vars[0])
+	}
+}
+
+// TestEnvironmentCardCount checks the index shows the variable count per
+// environment.
+func TestEnvironmentCardCount(t *testing.T) {
+	services := newTestServices(t)
+	ctx := context.Background()
+
+	s := &shellState{workspaceID: "ws-1", newVarName: "baseUrl", newVarValue: "https://x.test"}
+	s.createEnvironmentVariable(services, "env-1")
+
+	st := shellState{workspaceID: "ws-1", router: ui.NewRouter("/environments")}
+	st.load(ctx, services)
+	if got := len(st.variablesForEnvironment("env-1")); got != 1 {
+		t.Fatalf("variables for env = %d, want 1", got)
+	}
+	if got := plural(1, "variable", "variables"); got != "1 variable" {
+		t.Fatalf("plural = %q", got)
 	}
 }

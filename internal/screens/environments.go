@@ -20,8 +20,8 @@ import (
 func environmentsView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
 	ui.Column(c).Fill().Children(func() {
 		pageHeader(c, tk, "Environments", "Manage the variables each environment sends with your requests.")
-		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
-			ui.Column(c).WidthPercent(100).Padding(24, 24).Gap(10).Children(func() {
+		ui.Scroll(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.Start).Padding(24, 24).Gap(10).Children(func() {
 				if _, ok := st.currentWorkspace(); !ok {
 					emptyState(c, tk, lucide.Database(), "No workspace selected", "Select or create a workspace to manage environments.")
 					return
@@ -32,7 +32,7 @@ func environmentsView(c *ui.Context, tk *theme.Tokens, st *shellState, services 
 					emptyState(c, tk, lucide.Database(), "No environments yet", "Create an environment to start defining variables.")
 				}
 				for i := range envs {
-					environmentCard(c, tk, st, &envs[i])
+					environmentCard(c, tk, st, services, &envs[i])
 				}
 
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(4, 0).Children(func() {
@@ -48,7 +48,7 @@ func environmentsView(c *ui.Context, tk *theme.Tokens, st *shellState, services 
 
 // environmentCard is one row of the environments list; clicking it opens the
 // environment's variable editor.
-func environmentCard(c *ui.Context, tk *theme.Tokens, st *shellState, env *domainenv.Environment) {
+func environmentCard(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, env *domainenv.Environment) {
 	active := env.ID == st.environmentID
 	row := ui.Row(c)
 	row.Gap(12).Height(56).MinWidth(0).Shrink(1).Radius(tk.BorderRadius).
@@ -63,21 +63,20 @@ func environmentCard(c *ui.Context, tk *theme.Tokens, st *shellState, env *domai
 		})
 
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
-			label := env.Name
-			if active {
-				label += "   Active"
-			}
-			ui.Text(c, label).FontWeight(500).SingleLine()
+			ui.Text(c, env.Name).FontWeight(500).SingleLine()
 			n := len(st.variablesForEnvironment(env.ID))
 			ui.Text(c, plural(n, "variable", "variables")).FontSize(12).TextColor(tk.TextTertiary).SingleLine()
 		})
 
-		if action.Button(c, "Open", action.ButtonProps{Variant: action.Text}).Clicked() {
-			st.openEnvironment(env.ID)
+		if active {
+			ui.Box(c).PaddingX(8).Height(20).Center().Radius(10).Background(tk.PrimaryFillSecondary).Children(func() {
+				ui.Text(c, "Active").FontSize(11).FontWeight(500).TextColor(tk.Primary)
+			})
 		}
+		ui.Icon(c, lucide.ChevronRight()).FontSize(14).TextColor(tk.TextTertiary)
 	})
 	if row.Clicked() {
-		st.openEnvironment(env.ID)
+		st.openEnvironment(env.ID, services)
 	}
 }
 
@@ -93,7 +92,7 @@ func environmentDetailView(c *ui.Context, tk *theme.Tokens, st *shellState, serv
 		return
 	}
 
-	ui.Column(c).Fill().Children(func() {
+	ui.Column(c).Fill().MinWidth(0).Children(func() {
 		pageHeader(c, tk, env.Name, "Variables defined here are available while this environment is active.")
 		ui.Row(c).Padding(0, 24).Height(44).Gap(4).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
@@ -103,13 +102,13 @@ func environmentDetailView(c *ui.Context, tk *theme.Tokens, st *shellState, serv
 			ui.Box(c).Grow(1)
 			if env.ID != st.environmentID {
 				if action.Button(c, "Set as active", action.ButtonProps{}).Clicked() {
-					st.environmentID = env.ID
+					st.setActiveEnvironment(context.Background(), services, env.ID)
 				}
 			}
 		})
 
-		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
-			ui.Column(c).Padding(24, 24).Gap(6).Children(func() {
+		ui.Scroll(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.Start).Padding(24, 24).Gap(6).Children(func() {
 				vars := st.variablesForEnvironment(env.ID)
 				ui.Row(c).Height(28).PaddingX(2).Children(func() {
 					ui.Text(c, "Name").Grow(3).Basis(0).FontSize(12).FontWeight(600).TextColor(tk.TextTertiary)
@@ -169,11 +168,11 @@ func emptyState(c *ui.Context, tk *theme.Tokens, icon *ui.SVG, title, hint strin
 
 // pageHeader renders a page title with a subtitle.
 func pageHeader(c *ui.Context, tk *theme.Tokens, title, subtitle string) {
-	ui.Column(c).Padding(24, 16).Gap(2).BorderWidth(0, 0, 1, 0).
+	ui.Column(c).MinWidth(0).Padding(24, 16).Gap(2).BorderWidth(0, 0, 1, 0).
 		BorderColor(tk.BorderSecondary).Children(func() {
-		ui.Text(c, title).FontSize(18).FontWeight(600)
+		ui.Text(c, title).FontSize(18).FontWeight(600).SingleLine()
 		if subtitle != "" {
-			ui.Text(c, subtitle).FontSize(13).TextColor(tk.TextSecondary)
+			ui.Text(c, subtitle).FontSize(13).TextColor(tk.TextSecondary).SingleLine()
 		}
 	})
 }

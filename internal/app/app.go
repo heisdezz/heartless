@@ -37,7 +37,12 @@ type Services struct {
 // given environment and workspace variables. A new one per send keeps sends
 // independent of one another and of later variable edits.
 func (s *Services) ExecutorFor(envVars, workspaceVars []*domainvar.Variable) *reqservice.Executor {
-	return reqservice.NewExecutor(transport.NewClient(), NewResolver(envVars, workspaceVars), domainreq.DefaultHTTPSettings())
+	exec := reqservice.NewExecutor(transport.NewClient(), NewResolver(envVars, workspaceVars), domainreq.DefaultHTTPSettings())
+	if s.History != nil {
+		// Record each send, with its response payload, to the database.
+		exec = exec.WithHistory(s.History)
+	}
+	return exec
 }
 
 // NewResolver builds a variable resolver from environment and workspace

@@ -66,7 +66,7 @@ func workspaceDialog(c *ui.Context, st *shellState, services *app.Services) {
 							label += " (active)"
 						}
 						if action.Button(c, label, action.ButtonProps{Variant: action.Text}).Clicked() {
-							st.environmentID = env.ID
+							st.setActiveEnvironment(context.Background(), services, env.ID)
 							st.showWorkspaceDialog = false
 						}
 					}
@@ -102,6 +102,8 @@ func createWorkspaceModal(c *ui.Context, st *shellState, services *app.Services)
 				st.err = ""
 				if err := st.reload(context.Background(), services); err != nil {
 					st.err = err.Error()
+				} else {
+					_ = st.reloadEnvironments(context.Background(), services)
 				}
 			}
 		}
