@@ -23,7 +23,9 @@ if [ -z "$file_version" ]; then
   exit 1
 fi
 
-latest_tag="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n1 || true)"
+# Only stable vX.Y.Z tags are release baselines; prerelease/build tags are ignored.
+latest_tag="$(git tag --list 'v[0-9]*' --sort=-v:refname \
+  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
 if [ -n "$latest_tag" ]; then
   current="${latest_tag#v}"
   range="${latest_tag}..HEAD"

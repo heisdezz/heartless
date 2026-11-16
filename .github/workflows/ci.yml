@@ -160,11 +160,19 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           BUMP: ${{ needs.version.outputs.bump }}
         run: |
+          # Upload files, not directories, and give each asset a unique label
+          # from its platform folder so shared names (icon.png) don't collide.
+          assets=()
+          while IFS= read -r -d '' file; do
+            assets+=("$file#${file#dist/}")
+          done < <(find dist -type f -print0 | sort -z)
+          printf 'Assets:\n%s\n' "${assets[@]}"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Re-running for the same version replaces its assets.
-            gh release upload "$TAG" dist/* --clobber
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" dist/* \
+            gh release create "$TAG" "${assets[@]}" \
               --title "Heartless $VERSION" \
               --target "$GITHUB_SHA" \
               --generate-notes
