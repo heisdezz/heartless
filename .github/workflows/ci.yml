@@ -18,6 +18,25 @@ env:
   BUILD_DIR: build
 
 jobs:
+  version:
+    name: Determine version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      tag: ${{ steps.semver.outputs.tag }}
+      bump: ${{ steps.semver.outputs.bump }}
+      should_release: ${{ steps.semver.outputs.should_release }}
+    steps:
+      # Full history and tags are needed to find the last release and scan the
+      # conventional commits since it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: semver
+        run: bash scripts/semver.sh
+
   test:
     name: Test and vet
     runs-on: ubuntu-latest
@@ -46,7 +65,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.name }}
-    needs: test
+    needs: [test, version]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -73,6 +92,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Stamp version
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          tmp="$(mktemp)"
+          sed -E "s/(\"version\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1${VERSION}\2/" mygo.json > "$tmp"
+          mv "$tmp" mygo.json
+          echo "Building version $VERSION"
 
       # The Linux build links GTK/WebKit, which the runner needs present.
       - name: Install Linux build dependencies
@@ -103,8 +132,13 @@ jobs:
 
   release:
     name: Release
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, version]
+    # Only publish on main, and only when the commits since the last tag
+    # actually call for a version bump.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,26 +150,15 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Read version
-        id: version
-        run: |
-          version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' mygo.json | head -n1)"
-          if [ -z "$version" ]; then
-            echo "could not read version from mygo.json" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Releasing $version"
-
       - name: List files to publish
         run: find dist -type f | sort
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          BUMP: ${{ needs.version.outputs.bump }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Re-running for the same version replaces its assets.
@@ -146,3 +169,4 @@ jobs:
               --target "$GITHUB_SHA" \
               --generate-notes
           fi
+          echo "Published $TAG ($BUMP release)"
