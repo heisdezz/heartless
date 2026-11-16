@@ -8,10 +8,10 @@ jobs:
   debug:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: gh release create
         env:
           GH_TOKEN: ${{ github.token }}
           GH_DEBUG: api
         run: |
-          gh --version
-          gh release create v0.0.0-debug2 --title debug --target main --generate-notes 2>&1 | head -80
+          gh release create v0.0.0-debug3 --title debug --target main --generate-notes 2>&1 | head -120
