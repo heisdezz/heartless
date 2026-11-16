@@ -47,7 +47,9 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 		MinWidth(0).
 		Padding(0, bar.Right, 0, bar.Left).
 		AlignItems(ui.Center).
-		Background(tk.BgContainer).
+		// The bar frames the content with the window's color, as the sidebar
+		// does, rather than taking the panel surface the content area has.
+		Background(tk.BgLayout).
 		BorderWidth(0, 0, 1, 0).
 		BorderColor(tk.BorderSecondary).
 		DragWindow().

@@ -51,7 +51,7 @@ func environmentsView(c *ui.Context, tk *theme.Tokens, st *shellState, services 
 func environmentCard(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, env *domainenv.Environment) {
 	active := env.ID == st.environmentID
 	row := ui.Row(c)
-	row.Gap(12).Height(56).MinWidth(0).Shrink(1).Radius(tk.BorderRadius).
+	row.Gap(space(c, 12)).Height(space(c, 56)).MinWidth(0).Shrink(1).Radius(tk.BorderRadius).
 		Border(1, tk.BorderSecondary).PaddingX(14).AlignItems(ui.Center).
 		Background(tk.BgContainer).Cursor(ui.CursorPointer)
 	if row.Hovered() {
@@ -94,7 +94,7 @@ func environmentDetailView(c *ui.Context, tk *theme.Tokens, st *shellState, serv
 
 	ui.Column(c).Fill().MinWidth(0).Children(func() {
 		pageHeader(c, tk, env.Name, "Variables defined here are available while this environment is active.")
-		ui.Row(c).Padding(0, 24).Height(44).Gap(4).AlignItems(ui.Center).
+		ui.Row(c).Padding(0, 24).Height(space(c, 44)).Gap(4).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
 			if action.Button(c, "All environments", action.ButtonProps{Variant: action.Text}).Clicked() {
 				st.router.Replace("/environments")

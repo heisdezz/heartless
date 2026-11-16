@@ -1,28 +1,31 @@
 package screens
 
 import (
+	"sync/atomic"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/lobehub/lobe-mygo/pkg/theme"
 
 	"heartless/internal/config"
 )
 
-// ThemeConfig builds a Lobe MyGO theme Config from the saved settings. The
-// light and dark token sets are the library defaults, with the accent and
-// background colors overridden when the user set them, and the interface
-// font size scaled.
+// ThemeConfig builds a Lobe MyGO theme Config from the saved settings: the
+// chosen theme preset in both appearances, the user's own colors applied over
+// it, and the interface font size scaled.
 //
 // Keep the returned Config for the app's life: every Config is remembered, and
 // TokensOf looks it up by the theme the frame uses.
 func ThemeConfig(s config.ApplicationSettings) *theme.Config {
-	light := *theme.Default().Tokens(false)
-	dark := *theme.Default().Tokens(true)
-
-	applyThemeSettings(&light, s.Theme, false)
-	applyThemeSettings(&dark, s.Theme, true)
-	applyFontSize(&light, s.Interface.FontSize)
-	applyFontSize(&dark, s.Interface.FontSize)
+	preset := themePresetByID(s.Theme.Name)
+	light := buildTokens(preset.Palette(false), false, s.Interface.FontSize)
+	dark := buildTokens(preset.Palette(true), true, s.Interface.FontSize)
 	return theme.NewConfig(light, dark)
+}
+
+// applyVariant applies the theme the settings chose, light or dark, instead of
+// following the system's appearance, so the Variant control means what it says.
+func applyTheme(c *ui.Context, cfg *theme.Config, s config.ApplicationSettings) {
+	c.SetTheme(cfg.Theme(ThemeIsDark(s)))
 }
 
 // applyFontSize scales a token set's text from the interface font size, which
@@ -48,34 +51,32 @@ func textSize(c *ui.Context, size float32) float32 {
 	return c.Theme().Rem(size / baseFontSize)
 }
 
+// compactScale is how much compact mode shrinks spacing: row heights, gaps and
+// padding, but not text, which has its own setting.
+const compactScale float32 = 0.78
+
+// compactLayout is whether the frame being built is compact. One frame builds
+// at a time, so a single flag carries the density into helpers deep in the
+// widget tree without threading it through every signature.
+var compactLayout atomic.Bool
+
+// setCompact records the frame's density for space to read.
+func setCompact(compact bool) { compactLayout.Store(compact) }
+
+// space scales a spacing value (a height, gap or padding) for the frame's
+// density, so compact mode tightens the layout everywhere it is applied.
+func space(c *ui.Context, v float32) float32 {
+	_ = c
+	if compactLayout.Load() {
+		return v * compactScale
+	}
+	return v
+}
+
 // ThemeIsDark reports whether the saved theme asks for the dark variant.
 func ThemeIsDark(s config.ApplicationSettings) bool {
-	return s.Theme.Name == "dark"
+	return s.Theme.Variant == config.VariantDark
 }
-
-// applyThemeSettings overrides a token set from the theme settings.
-func applyThemeSettings(t *theme.Tokens, cfg config.Theme, dark bool) {
-	if cfg.AccentColor != "" {
-		if c, ok := parseHexColor(cfg.AccentColor); ok {
-			t.Primary = c
-			t.PrimaryText = c
-		}
-	}
-	// The saved background/foreground describe one appearance; apply them to the
-	// variant they were picked for.
-	if cfg.BackgroundColor != "" && dark == ThemeIsDarkConfig(cfg) {
-		if c, ok := parseHexColor(cfg.BackgroundColor); ok {
-			t.BgLayout = c
-		}
-	}
-	if cfg.ForegroundColor != "" && dark == ThemeIsDarkConfig(cfg) {
-		if c, ok := parseHexColor(cfg.ForegroundColor); ok {
-			t.Text = c
-		}
-	}
-}
-
-func ThemeIsDarkConfig(cfg config.Theme) bool { return cfg.Name == "dark" }
 
 // parseHexColor parses "#rgb" or "#rrggbb".
 func parseHexColor(s string) (ui.Color, bool) {

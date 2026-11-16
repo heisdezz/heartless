@@ -42,7 +42,7 @@ func settingsView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 		pageHeader(c, tk, "Settings", "Appearance, interface behavior and plugins.")
 
 		// Save bar.
-		ui.Row(c).Height(44).PaddingX(24).Gap(8).AlignItems(ui.Center).
+		ui.Row(c).Height(space(c, 44)).PaddingX(24).Gap(8).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
 			save := action.Button(c, "Save", action.ButtonProps{Variant: action.Primary, Size: theme.Small}).Shrink(0)
 			if !st.settingsDirty {
@@ -99,41 +99,105 @@ func settingsView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 	})
 }
 
-// appearanceSettings edits the theme: variant, accent and colors.
+// appearanceSettings picks the theme. The theme owns every color the
+// interface draws with: window, panels, text and accent. Nothing is set
+// piecemeal, so the four presets are the whole palette.
 func appearanceSettings(c *ui.Context, tk *theme.Tokens, st *shellState) {
-	th := &st.settings.Theme
-
-	// The stored name follows the segmented control, also for a change made
-	// after this row built.
-	st.syncThemeVariant()
-
 	settingsGroup(c, tk, "Theme", "How the interface looks.")(func() {
+		rowSetting(c, tk, "Theme", "Each theme sets the window, panels, text and accent.")(func() {
+			themePicker(c, tk, st)
+		})
+		rowDivider(c, tk)
 		rowSetting(c, tk, "Variant", "Light or dark appearance.")(func() {
+			// The control shows the stored variant; the settings are the truth.
+			st.themeVariant = 0
+			if st.darkVariant() {
+				st.themeVariant = 1
+			}
 			action.Segmented(c, &st.themeVariant, []string{"Light", "Dark"}, action.SegmentedProps{}).
 				Width(160).Shrink(0).OnChange(func() { st.syncThemeVariant() })
 		})
 		rowDivider(c, tk)
-		rowSetting(c, tk, "Accent color", "Primary color for buttons and highlights.")(func() {
-			colorField(c, tk, st, &th.AccentColor, "#0066ff")
-		})
-		rowDivider(c, tk)
-		rowSetting(c, tk, "Background", "Main window background. Applies to the current variant.")(func() {
-			colorField(c, tk, st, &th.BackgroundColor, "#ffffff")
-		})
-		rowDivider(c, tk)
-		rowSetting(c, tk, "Foreground", "Main text color. Applies to the current variant.")(func() {
-			colorField(c, tk, st, &th.ForegroundColor, "#000000")
+		rowSetting(c, tk, "Colors", "What the theme sets, for the current variant.")(func() {
+			themeColorPreview(c, tk, st)
 		})
 	})
 }
 
-// syncThemeVariant keeps the stored theme name in step with the variant
-// control.
+// themeColorPreview shows the colors the chosen theme applies, so what it
+// controls is visible without being editable.
+func themeColorPreview(c *ui.Context, tk *theme.Tokens, st *shellState) {
+	p := themePresetByID(st.settings.Theme.Name).Palette(st.darkVariant())
+	colors := []struct {
+		name string
+		col  ui.Color
+	}{
+		{"Window", p.Background},
+		{"Panel", p.Surface},
+		{"Text", p.Foreground},
+		{"Border", p.Border},
+		{"Accent", p.Accent},
+	}
+	ui.Row(c).Gap(12).Shrink(0).Children(func() {
+		for _, c2 := range colors {
+			c2 := c2
+			ui.Column(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Box(c).Width(space(c, 22)).Height(space(c, 22)).Radius(tk.BorderRadiusSM).
+					Background(c2.col).Border(1, tk.BorderSecondary)
+				ui.Text(c, c2.name).FontSize(textSize(c, 10)).TextColor(tk.TextTertiary)
+			})
+		}
+	})
+}
+
+// themePicker shows the built-in themes as swatches of the chosen variant,
+// the selected one outlined in its accent.
+func themePicker(c *ui.Context, tk *theme.Tokens, st *shellState) {
+	dark := st.darkVariant()
+	ui.Row(c).Gap(8).Shrink(0).Children(func() {
+		for _, preset := range themePresets {
+			preset := preset
+			selected := st.settings.Theme.Name == preset.ID
+			p := preset.Palette(dark)
+			btn := ui.ButtonBase(c).Label(preset.Name).Width(space(c, 92)).Height(space(c, 56)).
+				Radius(tk.BorderRadiusSM).Cursor(ui.CursorPointer).Transition(rowTransition)
+			if selected {
+				btn.Border(2, p.Accent).Background(p.Surface)
+			} else {
+				btn.Border(1, tk.BorderSecondary).Background(p.Surface)
+			}
+			btn.Children(func() {
+				ui.Row(c).Gap(4).Children(func() {
+					ui.Box(c).Width(space(c, 10)).Height(space(c, 10)).Radius(5).Background(p.Accent)
+					ui.Box(c).Width(space(c, 10)).Height(space(c, 10)).Radius(5).Background(p.Foreground)
+					ui.Box(c).Width(space(c, 10)).Height(space(c, 10)).Radius(5).Background(p.Border)
+				})
+				ui.Text(c, preset.Name).FontSize(textSize(c, 11)).TextColor(p.Foreground)
+			})
+			if btn.Clicked() && !selected {
+				st.settings.Theme.Name = preset.ID
+				st.syncThemeVariant()
+			}
+		}
+	})
+}
+
+// darkVariant reports whether the settings ask for the dark variant. It reads
+// the settings rather than themeVariant, which only the segmented control
+// updates and so is stale until the Appearance section has been drawn.
+func (s *shellState) darkVariant() bool {
+	return s.settings.Theme.Variant == config.VariantDark
+}
+
+// syncThemeVariant keeps the stored variant in step with the variant control.
 func (s *shellState) syncThemeVariant() {
 	if s.themeVariant == 1 {
-		s.settings.Theme.Name = "dark"
+		s.settings.Theme.Variant = config.VariantDark
 	} else {
-		s.settings.Theme.Name = "light"
+		s.settings.Theme.Variant = config.VariantLight
+	}
+	if s.settings.Theme.Name == "" {
+		s.settings.Theme.Name = defaultThemeID
 	}
 	s.settingsDirty = modifiedFrom(s.settings, s.settingsBase)
 }
@@ -248,7 +312,7 @@ func rowDivider(c *ui.Context, tk *theme.Tokens) {
 // The hint may wrap rather than being cut off beside a wide control.
 func rowSetting(c *ui.Context, tk *theme.Tokens, label, hint string) func(control func()) {
 	return func(control func()) {
-		ui.Row(c).AlignSelf(ui.Stretch).MinWidth(0).MinHeight(52).Gap(24).AlignItems(ui.Center).
+		ui.Row(c).AlignSelf(ui.Stretch).MinWidth(0).MinHeight(space(c, 52)).Gap(space(c, 24)).AlignItems(ui.Center).
 			PaddingY(10).Children(func() {
 			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 				ui.Text(c, label).FontSize(textSize(c, 13)).TextColor(tk.Text)
@@ -259,24 +323,6 @@ func rowSetting(c *ui.Context, tk *theme.Tokens, label, hint string) func(contro
 			ui.Box(c).Shrink(0).Children(control)
 		})
 	}
-}
-
-// colorField renders a hex color input with a swatch preview. A valid value
-// marks the settings dirty; an invalid one only shows its fallback swatch
-// until it parses.
-func colorField(c *ui.Context, tk *theme.Tokens, st *shellState, value *string, placeholder string) {
-	ui.Row(c).Width(220).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
-		swatch := tk.BorderSecondary
-		if col, ok := parseHexColor(*value); ok {
-			swatch = col
-		}
-		ui.Box(c).Width(20).Height(20).Radius(tk.BorderRadiusSM).Background(swatch).
-			Border(1, tk.BorderSecondary).Shrink(0)
-		ui.Box(c).Grow(1).Basis(0).MinWidth(0).Clip().Children(func() {
-			field.Input(c, value, field.InputProps{Placeholder: placeholder, Size: theme.Small}).Grow(1).
-				OnChange(func() { st.settingsDirty = modifiedFrom(st.settings, st.settingsBase) })
-		})
-	})
 }
 
 // ensureSettings loads the settings once and seeds the editor fields.
@@ -292,7 +338,8 @@ func (s *shellState) ensureSettings(services *app.Services) {
 	}
 	s.settings = loaded
 	s.settingsBase = loaded
-	if loaded.Theme.Name == "dark" {
+	s.themeVariant = 0
+	if loaded.Theme.Variant == config.VariantDark {
 		s.themeVariant = 1
 	}
 }
@@ -307,6 +354,7 @@ func (s *shellState) saveSettings(services *app.Services) {
 		return
 	}
 	s.settingsBase = s.settings
+	s.settingsDirty = false
 	s.settingsSaved = true
 	// App rebuilds the theme from the saved copy on the next frame.
 }
@@ -349,9 +397,7 @@ func setMembership(list []string, v string, in bool) []string {
 // modifiedFrom reports whether s differs from base.
 func modifiedFrom(s, base config.ApplicationSettings) bool {
 	if s.Theme.Name != base.Theme.Name ||
-		s.Theme.AccentColor != base.Theme.AccentColor ||
-		s.Theme.BackgroundColor != base.Theme.BackgroundColor ||
-		s.Theme.ForegroundColor != base.Theme.ForegroundColor {
+		s.Theme.Variant != base.Theme.Variant {
 		return true
 	}
 	if s.Interface.ReduceMotion != base.Interface.ReduceMotion ||

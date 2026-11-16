@@ -91,7 +91,11 @@ func sidebar(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Serv
 							Variant:     field.InputFilled,
 						})
 					})
-					if action.Button(c, "Settings", action.ButtonProps{Variant: action.Text}).Clicked() {
+					if action.ActionIcon(c, lucide.Settings(), action.ActionIconProps{
+						Variant: action.ActionIconBorderless,
+						Size:    theme.Small,
+						Title:   "Settings",
+					}).Clicked() {
 						st.router.Push("/settings")
 					}
 				})
@@ -222,7 +226,7 @@ func folderRowNested(c *ui.Context, tk *theme.Tokens, st *shellState, services *
 func requestRowAt(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, req *domainreq.Request, depth int) {
 	selected := st.selectedRequestID == req.ID
 	row := ui.ButtonBase(c).Key("req:"+req.ID).Label(req.Name).Row().
-		Height(26).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
+		Height(space(c, 26)).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
 		Radius(tk.BorderRadiusSM).AlignSelf(ui.Stretch).
 		Transition(rowTransition).Cursor(ui.CursorPointer).
 		Padding(0, 4, 0, float32(depth)*14+18)
@@ -300,7 +304,7 @@ func requestTypeColor(tk *theme.Tokens, req *domainreq.Request) ui.Color {
 // treeRow draws a tree row with an expand chevron, icon and label, left-aligned.
 func treeRow(c *ui.Context, tk *theme.Tokens, key, label string, depth int, open bool, icon *ui.SVG) ui.Element {
 	row := ui.ButtonBase(c).Key(key).Label(label).Row().
-		Height(26).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
+		Height(space(c, 26)).AlignItems(ui.Center).Justify(ui.Start).Gap(4).
 		Radius(tk.BorderRadiusSM).AlignSelf(ui.Stretch).
 		Transition(rowTransition).Cursor(ui.CursorPointer).
 		Padding(0, 4, 0, float32(depth)*14+4)

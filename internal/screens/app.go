@@ -863,7 +863,11 @@ func App(c *ui.Context, services *app.Services) {
 		st.themeConfig = ThemeConfig(st.settings)
 		st.themeSaved = st.settings
 	}
-	st.themeConfig.Apply(c)
+	// The chosen variant is applied rather than the system's, so the Variant
+	// control means what it says.
+	applyTheme(c, st.themeConfig, st.settings)
+	// Density reaches the helpers deep in the tree through this flag.
+	setCompact(st.settings.Interface.CompactMode)
 	tk := theme.TokensOf(c)
 	root.Background(tk.BgLayout)
 

@@ -44,7 +44,7 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 	_, running, _, _, _ := st.responseView(req.ID)
 
 	ui.Column(c).Grow(1).Basis(0).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
-		ui.Row(c).Height(52).AlignSelf(ui.Stretch).PaddingX(16).Gap(8).AlignItems(ui.Center).
+		ui.Row(c).Height(space(c, 52)).AlignSelf(ui.Stretch).PaddingX(16).Gap(8).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
 			methodSelect(c, rs)
 			// field.Input returns the inner text field, not its styled row, so wrap
@@ -77,7 +77,7 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 		}
 
 		// Tabs, as plain buttons so the pane keeps filling the width.
-		ui.Row(c).Height(38).AlignSelf(ui.Stretch).PaddingX(16).Gap(4).AlignItems(ui.Center).
+		ui.Row(c).Height(space(c, 38)).AlignSelf(ui.Stretch).PaddingX(16).Gap(4).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
 			for i, name := range []string{"Params", "Headers", "Body", "Auth", "Script"} {
 				i, name := i, name
@@ -238,7 +238,7 @@ func pairsEditor(c *ui.Context, tk *theme.Tokens, rows *[]*kv, keyHint, valueHin
 	}
 	ui.Column(c).MinWidth(0).AlignSelf(ui.Stretch).Gap(0).
 		Border(1, tk.BorderSecondary).Radius(tk.BorderRadiusSM).Children(func() {
-		ui.Row(c).Height(28).AlignSelf(ui.Stretch).PaddingX(8).Gap(6).AlignItems(ui.Center).
+		ui.Row(c).Height(space(c, 28)).AlignSelf(ui.Stretch).PaddingX(8).Gap(6).AlignItems(ui.Center).
 			Background(tk.FillQuaternary).BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).
 			Children(func() {
 				ui.Box(c).Width(20).Shrink(0)
@@ -250,7 +250,7 @@ func pairsEditor(c *ui.Context, tk *theme.Tokens, rows *[]*kv, keyHint, valueHin
 		remove := -1
 		for i, row := range *rows {
 			i, row := i, row
-			ui.Row(c).Height(36).AlignSelf(ui.Stretch).PaddingX(8).Gap(6).AlignItems(ui.Center).
+			ui.Row(c).Height(space(c, 36)).AlignSelf(ui.Stretch).PaddingX(8).Gap(6).AlignItems(ui.Center).
 				BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).
 				Children(func() {
 					choice.Checkbox(c, &row.On, "", choice.CheckboxProps{})
@@ -274,7 +274,7 @@ func pairsEditor(c *ui.Context, tk *theme.Tokens, rows *[]*kv, keyHint, valueHin
 				*rows = append(*rows, &kv{On: true})
 			}
 		}
-		ui.Row(c).Height(32).AlignSelf(ui.Stretch).PaddingX(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Height(space(c, 32)).AlignSelf(ui.Stretch).PaddingX(8).AlignItems(ui.Center).Children(func() {
 			if action.Button(c, "+ Add", action.ButtonProps{Variant: action.Text, Size: theme.Small}).Shrink(0).Clicked() {
 				*rows = append(*rows, &kv{On: true})
 			}

@@ -67,7 +67,7 @@ type responseSnapshot struct {
 // responsePanel is the bottom pane: status, timing and tabbed response details.
 func responsePanel(c *ui.Context, tk *theme.Tokens, rs *requestState, resp *responseSnapshot, running bool, errText string, respTab int, sentBody string) {
 	ui.Column(c).Fill().MinWidth(0).Children(func() {
-		ui.Row(c).Height(36).PaddingX(16).Gap(12).AlignItems(ui.Center).
+		ui.Row(c).Height(space(c, 36)).PaddingX(16).Gap(12).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).Children(func() {
 			ui.Text(c, "Response").FontSize(textSize(c, 13)).Bold().Shrink(0)
 			switch {

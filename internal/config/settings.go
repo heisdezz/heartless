@@ -4,17 +4,13 @@ import "time"
 
 // Theme holds theme configuration for the application interface.
 type Theme struct {
-	// Name of the theme (e.g., "light", "dark", "high-contrast").
+	// Name is the theme preset's ID: "neutral", "nord", "forest" or "plum".
+	// An unknown name falls back to the default theme.
 	Name string `json:"name,omitempty"`
 
-	// AccentColor is the primary accent color for UI elements.
-	AccentColor string `json:"accent_color,omitempty"`
-
-	// BackgroundColor is the main background color.
-	BackgroundColor string `json:"background_color,omitempty"`
-
-	// ForegroundColor is the main text color.
-	ForegroundColor string `json:"foreground_color,omitempty"`
+	// Variant is the appearance the theme is shown in: "light" or "dark".
+	// Empty means light, so settings saved before variants existed still load.
+	Variant string `json:"variant,omitempty"`
 
 	// Inverted is whether the theme inverts light/dark.
 	Inverted bool `json:"inverted,omitempty"`
@@ -26,16 +22,21 @@ type Theme struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// DefaultTheme returns the default theme configuration.
+// Theme variants.
+const (
+	VariantLight = "light"
+	VariantDark  = "dark"
+)
+
+// DefaultTheme returns the default theme configuration: the default preset in
+// its light variant. The preset supplies every color.
 func DefaultTheme() Theme {
 	return Theme{
-		Name:            "light",
-		AccentColor:     "#0066ff",
-		BackgroundColor: "#ffffff",
-		ForegroundColor: "#000000",
-		Inverted:        false,
-		CreatedAt:       time.Now().UTC(),
-		UpdatedAt:       time.Now().UTC(),
+		Name:      "neutral",
+		Variant:   VariantLight,
+		Inverted:  false,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 }
 

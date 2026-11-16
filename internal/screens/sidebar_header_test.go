@@ -7,8 +7,9 @@ import (
 	"github.com/lobehub/lobe-mygo/pkg/theme"
 )
 
-// TestSidebarSettingsBesideSearch checks Settings sits next to the search box
-// in the header and the old footer environment link is gone.
+// TestSidebarSettingsBesideSearch checks the settings control is an icon button
+// next to the search box in the header, opens settings, and that the old
+// footer environment link is gone.
 func TestSidebarSettingsBesideSearch(t *testing.T) {
 	services := newTestServices(t)
 	st := shellState{
@@ -22,12 +23,18 @@ func TestSidebarSettingsBesideSearch(t *testing.T) {
 	}, 900, 700)
 	tt.Frame()
 
+	// The control is labeled for assistive technology and its tooltip, but the
+	// header no longer spells "Settings" out as text.
 	settings, ok := tt.Find("Settings")
 	if !ok {
-		t.Fatalf("settings button missing, texts %q", tt.Texts())
+		t.Fatalf("settings control missing, texts %q", tt.Texts())
 	}
 	if settings.Y < 0 || settings.Y > 60 {
 		t.Fatalf("settings not in the header: %+v", settings)
+	}
+	// An icon button is as wide as it is tall; a text button would be wider.
+	if settings.W-settings.H > 1 {
+		t.Fatalf("settings control is %vx%v, want a square icon button", settings.W, settings.H)
 	}
 	if tt.HasText("Environments") {
 		t.Fatalf("old environment link still in sidebar, texts %q", tt.Texts())
@@ -38,5 +45,13 @@ func TestSidebarSettingsBesideSearch(t *testing.T) {
 	tt.Type("api")
 	if st.searchQuery != "api" {
 		t.Fatalf("searchQuery = %q, want api", st.searchQuery)
+	}
+
+	// Clicking the icon opens settings.
+	if err := tt.Click("Settings"); err != nil {
+		t.Fatalf("click settings: %v", err)
+	}
+	if got := st.router.Path(); got != "/settings" {
+		t.Fatalf("path = %q, want /settings", got)
 	}
 }

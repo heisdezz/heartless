@@ -21,13 +21,13 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
 	}
-	if got.Theme.Name != "light" || !got.Interface.ShowIcons {
+	if got.Theme.Name != defaultThemeID || got.Theme.Variant != config.VariantLight || !got.Interface.ShowIcons {
 		t.Fatalf("defaults = %+v", got)
 	}
 
 	s := config.DefaultApplicationSettings()
-	s.Theme.Name = "dark"
-	s.Theme.AccentColor = "#ff5500"
+	s.Theme.Name = "nord"
+	s.Theme.Variant = config.VariantDark
 	s.Interface.CompactMode = true
 	s.Interface.DoubleClickAction = "edit"
 	s.Plugins.Available = []string{"git-sync"}
@@ -40,7 +40,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if got.Theme.Name != "dark" || got.Theme.AccentColor != "#ff5500" {
+	if got.Theme.Name != "nord" || got.Theme.Variant != config.VariantDark {
 		t.Fatalf("theme = %+v", got.Theme)
 	}
 	if !got.Interface.CompactMode || got.Interface.DoubleClickAction != "edit" {
@@ -63,14 +63,19 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestThemeConfigAppliesAccent checks the saved accent reaches the tokens.
-func TestThemeConfigAppliesAccent(t *testing.T) {
+// TestThemeConfigSetsAccent checks each theme's accent reaches the tokens, and
+// that its window and text colors come from the same palette.
+func TestThemeConfigSetsAccent(t *testing.T) {
 	s := config.DefaultApplicationSettings()
-	s.Theme.AccentColor = "#ff5500"
+	s.Theme.Name = "plum"
 	cfg := ThemeConfig(s)
 	tk := cfg.Tokens(false)
-	if tk.Primary.R != 255 || tk.Primary.G != 0x55 || tk.Primary.B != 0 {
-		t.Fatalf("primary = %+v", tk.Primary)
+	want := themePresetByID("plum").Palette(false)
+	if tk.Primary != want.Accent {
+		t.Fatalf("primary = %v, want the theme's accent %v", tk.Primary, want.Accent)
+	}
+	if tk.BgLayout != want.Background || tk.Text != want.Foreground {
+		t.Fatalf("window %v text %v, want %v and %v", tk.BgLayout, tk.Text, want.Background, want.Foreground)
 	}
 }
 
@@ -99,9 +104,15 @@ func TestSettingsPageRenders(t *testing.T) {
 	}, 1100, 800)
 	tt.Frame()
 
-	for _, want := range []string{"Settings", "Appearance", "Interface", "Plugins", "Save", "Accent color"} {
+	for _, want := range []string{"Settings", "Appearance", "Interface", "Plugins", "Save", "Theme", "Variant", "Colors"} {
 		if !tt.HasText(want) {
 			t.Fatalf("settings missing %q, texts %q", want, tt.Texts())
+		}
+	}
+	// The themes themselves are the color picker; there is no separate field.
+	for _, preset := range themePresets {
+		if !tt.HasText(preset.Name) {
+			t.Fatalf("theme %q missing from the picker, texts %q", preset.Name, tt.Texts())
 		}
 	}
 
@@ -149,7 +160,7 @@ func TestSettingsSaveBar(t *testing.T) {
 	// Loaded through the page, so its editor copy is the one saved.
 	st := shellState{}
 	st.ensureSettings(services)
-	st.settings.Theme.AccentColor = "#ff5500"
+	st.settings.Theme.Name = "forest"
 	st.settingsDirty = true
 
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -171,12 +182,13 @@ func TestSettingsSaveBar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if saved.Theme.AccentColor != "#ff5500" {
-		t.Fatalf("saved accent = %q", saved.Theme.AccentColor)
+	if saved.Theme.Name != "forest" {
+		t.Fatalf("saved theme = %q", saved.Theme.Name)
 	}
 	// App builds the theme from the saved copy; saveSettings records it.
-	if tok := ThemeConfig(saved).Tokens(false); tok.Primary.R != 255 {
-		t.Fatalf("saved accent not applied to the theme: %+v", tok.Primary)
+	want := themePresetByID("forest").Palette(false)
+	if tok := ThemeConfig(saved).Tokens(false); tok.Primary != want.Accent {
+		t.Fatalf("saved theme not applied: primary %v, want %v", tok.Primary, want.Accent)
 	}
 
 	// Saving again is a no-op and the marker clears.
@@ -193,7 +205,8 @@ func TestSettingsResetToDefaults(t *testing.T) {
 
 	st := shellState{}
 	st.ensureSettings(services)
-	st.settings.Theme.Name = "dark"
+	st.settings.Theme.Name = "forest"
+	st.settings.Theme.Variant = config.VariantDark
 	st.themeVariant = 1
 	st.settings.Interface.FontSize = 18
 	st.saveSettings(services)
@@ -210,7 +223,7 @@ func TestSettingsResetToDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if saved.Theme.Name != "light" || saved.Interface.FontSize != 0 {
+	if saved.Theme.Name != defaultThemeID || saved.Theme.Variant != config.VariantLight || saved.Interface.FontSize != 0 {
 		t.Fatalf("saved after reset = %+v", saved)
 	}
 	if st.themeVariant != 0 {
