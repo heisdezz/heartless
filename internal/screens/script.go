@@ -273,15 +273,19 @@ func scriptRequestValue(vm *goja.Runtime, req *ScriptRequest) goja.Value {
 	return obj
 }
 
-// scriptResponseValue builds `res` from the response. The body is the raw text;
-// `res.json()` parses it into an object.
+// scriptResponseValue builds `res` from the response. `res.body` is the parsed
+// JSON object or array when the body is one, so scripts can use both
+// res.body.key and res.body["key"]; `res.text` is always the raw body string,
+// and `res.json()` parses strictly (throwing when the body is not JSON).
 func scriptResponseValue(vm *goja.Runtime, res *domainres.Response) goja.Value {
 	obj := vm.NewObject()
 	if res == nil {
 		_ = obj.Set("status", 0)
 		_ = obj.Set("body", "")
+		_ = obj.Set("text", "")
 		return obj
 	}
+	text := string(res.Body)
 	_ = obj.Set("id", res.ID)
 	_ = obj.Set("status", res.StatusCode)
 	_ = obj.Set("statusText", res.StatusText)
@@ -289,7 +293,8 @@ func scriptResponseValue(vm *goja.Runtime, res *domainres.Response) goja.Value {
 	_ = obj.Set("contentType", res.ContentType)
 	_ = obj.Set("size", res.Size)
 	_ = obj.Set("url", res.EffectiveURL)
-	_ = obj.Set("body", string(res.Body))
+	_ = obj.Set("text", text)
+	_ = obj.Set("body", scriptBodyValue(vm, res.Body))
 	if res.Error != "" {
 		_ = obj.Set("error", res.Error)
 	}
@@ -301,6 +306,22 @@ func scriptResponseValue(vm *goja.Runtime, res *domainres.Response) goja.Value {
 		return vm.ToValue(out)
 	})
 	return obj
+}
+
+// scriptBodyValue turns a JSON object/array body into a JavaScript object so
+// its fields can be read with dot or bracket notation. Non-JSON bodies and
+// scalar JSON values stay as the raw string, preserving text access.
+func scriptBodyValue(vm *goja.Runtime, body []byte) goja.Value {
+	var parsed any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return vm.ToValue(string(body))
+	}
+	switch parsed.(type) {
+	case map[string]any, []any:
+		return vm.ToValue(parsed)
+	default:
+		return vm.ToValue(string(body))
+	}
 }
 
 // scriptFormatValue renders a logged argument as console output, encoding

@@ -69,6 +69,14 @@ type requestState struct {
 	script    *scriptRun
 	scriptGen uint64 // increments per queued run, so stale results are dropped
 
+	// Inline completion state for the script editor: the caret, the suggestions
+	// for the word being typed, and which one is selected.
+	scriptCaret        int
+	scriptDesiredCaret int
+	scriptHasCaret     bool
+	scriptSuggest      []string
+	scriptSuggestSel   int
+
 	// Auth is the request's authentication; AuthToken, AuthUser and AuthPass
 	// back the editor fields for the current auth type.
 	Auth        domainreq.Auth

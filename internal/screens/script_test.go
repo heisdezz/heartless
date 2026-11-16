@@ -52,6 +52,43 @@ test("status is 200", () => { if (res.status !== 200) throw new Error("status " 
 	}
 }
 
+// TestPostResponseBodyIsParsed checks a JSON body can be read with both dot
+// and bracket notation, while res.text stays the raw body.
+func TestPostResponseBodyIsParsed(t *testing.T) {
+	res := &domainres.Response{
+		StatusCode:  200,
+		ContentType: "application/json",
+		Body:        []byte(`{"code":0,"anyvalue":"yes","items":[{"id":7}]}`),
+	}
+	src := `
+if (res.body.code !== 0) throw new Error("dot access: " + res.body.code);
+if (res.body["anyvalue"] !== "yes") throw new Error("bracket access");
+if (res.body.items[0].id !== 7) throw new Error("nested array");
+if (typeof res.text !== "string" || res.text.indexOf("anyvalue") < 0) throw new Error("raw text");
+console.log("parsed", res.body.code, res.body.anyvalue);
+`
+	out := RunPostResponseScript(src, &ScriptRequest{}, res, ScriptEnvironment{})
+	if out.Err != "" {
+		t.Fatalf("script error: %s", out.Err)
+	}
+	if len(out.Output) != 1 || out.Output[0].Text != "parsed 0 yes" {
+		t.Fatalf("output = %+v", out.Output)
+	}
+}
+
+// TestPostResponseBodyNonJSON checks a plain-text body stays a string.
+func TestPostResponseBodyNonJSON(t *testing.T) {
+	res := &domainres.Response{Body: []byte("plain text")}
+	src := `
+if (typeof res.body !== "string") throw new Error("expected string body");
+if (res.body !== "plain text") throw new Error("body = " + res.body);
+`
+	out := RunPostResponseScript(src, &ScriptRequest{}, res, ScriptEnvironment{})
+	if out.Err != "" {
+		t.Fatalf("script error: %s", out.Err)
+	}
+}
+
 // TestPostResponseScriptVariableUpdates checks env.set records an update with
 // the previous value, and that new names are marked as new.
 func TestPostResponseScriptVariableUpdates(t *testing.T) {
@@ -164,6 +201,62 @@ func TestScriptHighlightSpansKeepsText(t *testing.T) {
 	}
 	if joined != src {
 		t.Fatalf("spans text = %q, want %q", joined, src)
+	}
+}
+
+// TestScriptCompletion checks word detection, filtering and insertion used by
+// the editor's inline autocomplete.
+func TestScriptCompletion(t *testing.T) {
+	if prefix, start := scriptWordPrefix("console.log(res.bo)", 18); prefix != "res.bo" || start != 12 {
+		t.Fatalf("word = %q at %d, want res.bo at 12", prefix, start)
+	}
+	env := ScriptEnvironment{
+		Environment: []domainvar.Variable{{Name: "token"}},
+		Workspace:   []domainvar.Variable{{Name: "baseUrl"}},
+	}
+	got := scriptCompletions("res.bo", env)
+	if len(got) == 0 || got[0] != "res.body" {
+		t.Fatalf("completions for res.bo = %q", got)
+	}
+	got = scriptCompletions("to", env)
+	if len(got) == 0 || got[0] != "token" {
+		t.Fatalf("completions for to = %q", got)
+	}
+	if len(scriptCompletions("res.body", env)) != 0 {
+		t.Fatal("a completed token should not suggest itself")
+	}
+
+	text, caret := scriptInsertCompletion("console.log(res.bo)", 18, "res.body")
+	if text != "console.log(res.body)" || caret != 20 {
+		t.Fatalf("insert = %q at %d", text, caret)
+	}
+}
+
+// TestScriptCompletionSuggestionsShowsAndInserts checks the editor offers
+// matching tokens while a word is typed and clicking one completes it.
+func TestScriptCompletionSuggestionsShowsAndInserts(t *testing.T) {
+	services := newTestServices(t)
+	req := domainreq.NewHTTP("ws-1", "Complete")
+	req.ID = "req-complete"
+	req.URL = "https://api.test/x"
+
+	st := shellState{workspaceID: "ws-1", environmentID: "env-1"}
+	rs := st.requestStateFor(*req)
+	rs.Tab = 4
+	rs.Script = "res.bo"
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		requestPane(c, theme.TokensOf(c), &st, services, *req)
+	}, 1200, 900)
+	tt.Frame()
+	if !tt.HasText("Complete") || !tt.HasText("res.body") {
+		t.Fatalf("suggestions not shown, texts %q", tt.Texts())
+	}
+	if err := tt.Click("res.body"); err != nil {
+		t.Fatalf("click suggestion: %v", err)
+	}
+	if rs.Script != "res.body" {
+		t.Fatalf("script after completion = %q, want res.body", rs.Script)
 	}
 }
 

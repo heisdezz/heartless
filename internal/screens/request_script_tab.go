@@ -19,7 +19,7 @@ const scriptEditorRows = 14
 // scriptPlaceholder hints at what the objects hold while the script is empty.
 const scriptPlaceholder = "// Runs after every response.\n" +
 	"// req: id, method, url, body, bodyType, params, headers, authType\n" +
-	"// res: status, statusText, headers, body, json(), size, contentType, url\n" +
+	"// res: status, statusText, headers, body (JSON object), text (raw), json()\n" +
 	"// env.get(name), env.set(name, value), env.all()\n" +
 	"// test(\"name\", () => { if (res.status !== 200) throw new Error(\"…\") })\n" +
 	"console.log(res.status, res.json());"
@@ -76,7 +76,50 @@ func scriptEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 			if ranges := scriptStyleRanges(rs.Script, tk, st.knowsVariable); len(ranges) > 0 {
 				area.TextRanges(textRanges(ranges)...)
 			}
+
+			// Inline completion: suggest tokens for the word at the caret. Tab
+			// accepts, Escape dismisses, and the arrows move the selection.
+			if rs.scriptHasCaret {
+				area.SetTextSelection(rs.scriptDesiredCaret, rs.scriptDesiredCaret)
+				rs.scriptHasCaret = false
+			}
+			_, caret := area.TextSelection()
+			rs.scriptCaret = caret
+			prefix, _ := scriptWordPrefix(rs.Script, caret)
+			if prefix == "" {
+				rs.scriptSuggest = nil
+			} else {
+				rs.scriptSuggest = scriptCompletions(prefix, st.scriptEnv())
+			}
+			if rs.scriptSuggestSel >= len(rs.scriptSuggest) {
+				rs.scriptSuggestSel = 0
+			}
+			area = area.OnTextKey(func(k ui.TextKey) bool {
+				if len(rs.scriptSuggest) == 0 {
+					return false
+				}
+				switch k.Key {
+				case ui.KeyTab:
+					text, at := scriptInsertCompletion(k.Text(), rs.scriptCaret, rs.scriptSuggest[rs.scriptSuggestSel])
+					k.SetText(text)
+					rs.scriptDesiredCaret, rs.scriptHasCaret = at, true
+					rs.scriptSuggest = nil
+					return true
+				case ui.KeyEscape:
+					rs.scriptSuggest = nil
+					return true
+				case ui.KeyDown:
+					rs.scriptSuggestSel = (rs.scriptSuggestSel + 1) % len(rs.scriptSuggest)
+					return true
+				case ui.KeyUp:
+					rs.scriptSuggestSel = (rs.scriptSuggestSel - 1 + len(rs.scriptSuggest)) % len(rs.scriptSuggest)
+					return true
+				}
+				return false
+			})
 		})
+
+		scriptSuggestions(c, tk, rs)
 
 		scriptOutput(c, tk, st, services, rs)
 	})
@@ -265,10 +308,34 @@ func (s *shellState) applyScriptVariables(services *app.Services, rs *requestSta
 	run.applied = true
 }
 
+// scriptSuggestions shows the completion candidates for the word at the caret.
+// Clicking one inserts it; Tab accepts the highlighted one from the keyboard.
+func scriptSuggestions(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+	if len(rs.scriptSuggest) == 0 {
+		return
+	}
+	ui.Row(c).AlignSelf(ui.Stretch).AlignItems(ui.Center).Gap(4).Wrap().Children(func() {
+		ui.Text(c, "Complete").FontSize(textSize(c, 11)).TextColor(tk.TextTertiary).Shrink(0)
+		for i, suggestion := range rs.scriptSuggest {
+			i, suggestion := i, suggestion
+			btn := action.Button(c, suggestion, action.ButtonProps{Variant: action.Text, Size: theme.Small})
+			if i == rs.scriptSuggestSel {
+				btn.FontWeight(600).TextColor(tk.Primary).Underline()
+			}
+			if btn.Clicked() {
+				text, at := scriptInsertCompletion(rs.Script, rs.scriptCaret, suggestion)
+				rs.Script = text
+				rs.scriptDesiredCaret, rs.scriptHasCaret = at, true
+				rs.scriptSuggest = nil
+			}
+		}
+	})
+}
+
 // scriptTokenSnippet is what the Tokens button inserts: the objects and
 // helpers a script can use.
 const scriptTokenSnippet = "\n// req: id method url body bodyType params headers authType\n" +
-	"// res: status statusText headers body json() size contentType url\n" +
+	"// res: status statusText headers body(JSON) text json() size contentType url\n" +
 	"// env.get(name)  env.set(name, value)  env.all()\n" +
 	"// test(\"name\", () => {})\n"
 
