@@ -160,13 +160,29 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           BUMP: ${{ needs.version.outputs.bump }}
         run: |
-          # Upload files, not directories, and give each asset a unique label
-          # from its platform folder so shared names (icon.png) don't collide.
+          # Publish the installers for each platform, not every file inside an
+          # app bundle. Stage them flat so each asset has a simple, unique name.
+          mkdir -p stage
+          for pattern in \
+            "dist/darwin-universal/*.dmg" \
+            "dist/linux-amd64/*.deb" \
+            "dist/linux-amd64/*.rpm" \
+            "dist/linux-amd64/*.tar.gz" \
+            "dist/linux-amd64/install.sh" \
+            "dist/windows-amd64/*.exe"; do
+            cp $pattern stage/ 2>/dev/null || true
+          done
+
           assets=()
-          while IFS= read -r -d '' file; do
-            assets+=("$file#${file#dist/}")
-          done < <(find dist -type f -print0 | sort -z)
-          printf 'Assets:\n%s\n' "${assets[@]}"
+          for file in stage/*; do
+            [ -f "$file" ] && assets+=("$file")
+          done
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no release assets found" >&2
+            exit 1
+          fi
+          printf 'Assets:\n'
+          printf '  %s\n' "${assets[@]}"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Re-running for the same version replaces its assets.
