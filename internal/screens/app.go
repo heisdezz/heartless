@@ -860,6 +860,8 @@ func App(c *ui.Context, services *app.Services) {
 		}
 	})
 	st.load(context.Background(), services)
+	// Persist env.set updates from finished script runs without a save click.
+	st.autoApplyScriptVariables(services)
 
 	// Theme the frame from the saved settings: loading them here, rather than
 	// only on the settings page, is what lets the app start with the user's

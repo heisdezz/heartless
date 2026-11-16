@@ -121,13 +121,13 @@ func scriptEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 
 		scriptSuggestions(c, tk, rs)
 
-		scriptOutput(c, tk, st, services, rs)
+		scriptOutput(c, tk, st, rs)
 	})
 }
 
 // scriptOutput shows the last run: console lines and assertions, the variables
 // the script changed, and their save state.
-func scriptOutput(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services, rs *requestState) {
+func scriptOutput(c *ui.Context, tk *theme.Tokens, st *shellState, rs *requestState) {
 	run := rs.script
 	if run == nil {
 		ui.Text(c, "Output appears here after the response arrives.").
@@ -153,10 +153,8 @@ func scriptOutput(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 				FontSize(textSize(c, 12)).FontWeight(600).TextColor(tk.Success).Shrink(0)
 		}
 		ui.Text(c, humanDuration(res.Duration)).FontSize(textSize(c, 11)).TextColor(tk.TextTertiary).Shrink(0)
-		if len(res.Updates) > 0 && !run.applied {
-			if action.Button(c, "Save variables", action.ButtonProps{Size: theme.Small}).Shrink(0).Clicked() {
-				st.applyScriptVariables(services, rs)
-			}
+		if run.err != "" {
+			ui.Text(c, "Variable save failed").FontSize(textSize(c, 11)).TextColor(tk.Error).Shrink(0)
 		} else if len(res.Updates) > 0 {
 			ui.Text(c, "Variables saved").FontSize(textSize(c, 11)).TextColor(tk.Success).Shrink(0)
 		}
@@ -263,6 +261,29 @@ func (s *shellState) saveScriptDraft(services *app.Services, req domainreq.Reque
 	}
 }
 
+// autoApplyScriptVariables saves the env.set updates of finished script runs
+// without a confirmation click. It runs every frame so updates from a run that
+// finished while another tab was open are not lost.
+func (s *shellState) autoApplyScriptVariables(services *app.Services) {
+	if services == nil {
+		return
+	}
+	mu.Lock()
+	var pending []*requestState
+	for _, rs := range s.requestStates {
+		if rs == nil || rs.script == nil || rs.script.result == nil || rs.script.applied {
+			continue
+		}
+		if len(rs.script.result.Updates) > 0 {
+			pending = append(pending, rs)
+		}
+	}
+	mu.Unlock()
+	for _, rs := range pending {
+		s.applyScriptVariables(services, rs)
+	}
+}
+
 // applyScriptVariables persists the variables the script's last run changed,
 // into the environment they came from (or the active environment for new ones).
 func (s *shellState) applyScriptVariables(services *app.Services, rs *requestState) {
@@ -305,6 +326,25 @@ func (s *shellState) applyScriptVariables(services *app.Services, rs *requestSta
 		}
 	}
 	_ = s.reloadVariables(context.Background(), services)
+
+	// Refresh the editor drafts so a changed value shows right away instead of
+	// the copy cached when the variable was first opened.
+	values := make(map[string]string, len(run.result.Updates))
+	workspaces := make(map[string]bool, len(run.result.Updates))
+	for _, u := range run.result.Updates {
+		values[u.Name] = u.Value
+		workspaces[u.Name] = u.Workspace
+	}
+	for i := range s.variables {
+		v := &s.variables[i]
+		value, ok := values[v.Name]
+		if !ok || workspaces[v.Name] != (v.EnvironmentID == "") {
+			continue
+		}
+		if d := s.varDrafts[v.ID]; d != nil {
+			d.Name, d.Value = v.Name, value
+		}
+	}
 	run.applied = true
 }
 

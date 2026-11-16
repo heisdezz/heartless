@@ -260,6 +260,64 @@ func TestScriptCompletionSuggestionsShowsAndInserts(t *testing.T) {
 	}
 }
 
+// TestScriptVariablesAutoApplied checks env.set updates are saved as soon as a
+// run finishes, updating an existing variable and its editor draft.
+func TestScriptVariablesAutoApplied(t *testing.T) {
+	services := newTestServices(t)
+	ctx := context.Background()
+
+	existing := domainvar.NewVariable("token", "old", "text", false)
+	existing.WorkspaceID, existing.EnvironmentID = "ws-1", "env-1"
+	if err := services.Variables.Save(ctx, existing.ID, "ws-1", "env-1", existing); err != nil {
+		t.Fatalf("save variable: %v", err)
+	}
+
+	st := shellState{workspaceID: "ws-1", environmentID: "env-1"}
+	if err := st.reloadVariables(ctx, services); err != nil {
+		t.Fatalf("reload variables: %v", err)
+	}
+	draft := st.varDraft(*existing)
+	if draft.Value != "old" {
+		t.Fatalf("draft initial = %q", draft.Value)
+	}
+
+	req := domainreq.NewHTTP("ws-1", "AutoVars")
+	rs := st.requestStateFor(*req)
+	rs.script = &scriptRun{result: &ScriptResult{
+		Updates: []ScriptVariableUpdate{{Name: "token", Value: "new", Previous: "old", Existed: true}},
+	}}
+
+	st.autoApplyScriptVariables(services)
+
+	vars, err := services.Variables.List(ctx, "ws-1", "env-1")
+	if err != nil {
+		t.Fatalf("list variables: %v", err)
+	}
+	found := false
+	for _, v := range vars {
+		if v.Name == "token" {
+			found = true
+			if v.Value != "new" {
+				t.Fatalf("stored value = %q, want new", v.Value)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("token variable missing")
+	}
+	if draft.Value != "new" {
+		t.Fatalf("draft = %q, want new", draft.Value)
+	}
+	if !rs.script.applied {
+		t.Fatal("run not marked applied")
+	}
+	// A second pass is a no-op.
+	st.autoApplyScriptVariables(services)
+	if !rs.script.applied {
+		t.Fatal("run lost its applied state")
+	}
+}
+
 // TestScriptRunsAutomaticallyOnResponse checks the script runs by itself once
 // a send finishes, without pressing anything.
 func TestScriptRunsAutomaticallyOnResponse(t *testing.T) {
