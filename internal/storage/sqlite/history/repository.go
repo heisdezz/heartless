@@ -34,10 +34,11 @@ func (r *Repository) Save(ctx context.Context, entry *domain.Entry) error {
 		entry.CreatedAt = time.Now().UTC()
 	}
 	statusText, headers, body, contentType, size := responseFields(entry.Response)
+	resID, resRequestID, resDurationNS, effectiveURL := responseMeta(entry.Response)
 	_, err := r.db.ExecContext(ctx, `
 INSERT INTO execution_history (id, workspace_id, request_id, method, url, status_code, duration_ms, error, created_at,
-	status_text, response_headers, body, content_type, size)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	status_text, response_headers, body, content_type, size, response_id, response_request_id, response_duration_ns, effective_url)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	workspace_id = excluded.workspace_id,
 	request_id = excluded.request_id,
@@ -50,10 +51,23 @@ ON CONFLICT(id) DO UPDATE SET
 	response_headers = excluded.response_headers,
 	body = excluded.body,
 	content_type = excluded.content_type,
-	size = excluded.size
+	size = excluded.size,
+	response_id = excluded.response_id,
+	response_request_id = excluded.response_request_id,
+	response_duration_ns = excluded.response_duration_ns,
+	effective_url = excluded.effective_url
 `, entry.ID, entry.WorkspaceID, entry.RequestID, entry.Method, entry.URL, entry.StatusCode, entry.DurationMS, entry.Error, formatTime(entry.CreatedAt),
-		statusText, headers, body, contentType, size)
+		statusText, headers, body, contentType, size, resID, resRequestID, resDurationNS, effectiveURL)
 	return err
+}
+
+// responseMeta extracts the remaining response metadata columns. Duration is
+// stored in nanoseconds so short round-trips are not truncated to zero.
+func responseMeta(res *response.Response) (resID, requestID string, durationNS int64, effectiveURL string) {
+	if res == nil {
+		return "", "", 0, ""
+	}
+	return res.ID, res.RequestID, res.Duration.Nanoseconds(), res.EffectiveURL
 }
 
 // responseFields extracts the persisted columns from a response, encoding its
@@ -76,7 +90,44 @@ func (r *Repository) Get(ctx context.Context, id string) (*domain.Entry, error) 
 	return scan(row)
 }
 
-const historyColumns = `id, workspace_id, request_id, method, url, status_code, duration_ms, error, created_at, status_text, response_headers, body, content_type, size`
+// RequestIDsWithResponses returns the distinct request IDs that have at least
+// one history entry with a persisted response body in a workspace. It selects
+// only the ID column, so it stays cheap even when bodies are large.
+func (r *Repository) RequestIDsWithResponses(ctx context.Context, workspaceID string) ([]string, error) {
+	q := `SELECT DISTINCT request_id FROM execution_history
+		WHERE request_id != '' AND (body != '' OR status_code != 0 OR response_id != '' OR content_type != '')`
+	args := []any{}
+	if workspaceID != "" {
+		q += ` AND workspace_id = ?`
+		args = append(args, workspaceID)
+	}
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// LatestByRequestID returns the most recent history entry recorded for a
+// request, including its persisted response payload. request_id is indexed, so
+// this is cheap even with a large history table.
+func (r *Repository) LatestByRequestID(ctx context.Context, requestID string) (*domain.Entry, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+historyColumns+` FROM execution_history WHERE request_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+		requestID)
+	return scan(row)
+}
+
+const historyColumns = `id, workspace_id, request_id, method, url, status_code, duration_ms, error, created_at, status_text, response_headers, body, content_type, size, response_id, response_request_id, response_duration_ns, effective_url`
 
 func (r *Repository) List(ctx context.Context, workspaceID string, limit int) ([]*domain.Entry, error) {
 	q := `SELECT ` + historyColumns + ` FROM execution_history`
@@ -159,29 +210,37 @@ func scan(s scanner) (*domain.Entry, error) {
 	var e domain.Entry
 	var createdAt, headersJSON string
 	var statusText, body, contentType string
-	var size int64
+	var size, resDurationNS int64
+	var resID, resRequestID, effectiveURL string
 	if err := s.Scan(&e.ID, &e.WorkspaceID, &e.RequestID, &e.Method, &e.URL, &e.StatusCode, &e.DurationMS, &e.Error, &createdAt,
-		&statusText, &headersJSON, &body, &contentType, &size); err != nil {
+		&statusText, &headersJSON, &body, &contentType, &size, &resID, &resRequestID, &resDurationNS, &effectiveURL); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	e.CreatedAt = parseTime(createdAt)
-	if statusText != "" || headersJSON != "" || body != "" || contentType != "" || size != 0 {
+	if statusText != "" || headersJSON != "" || body != "" || contentType != "" || size != 0 || resID != "" || effectiveURL != "" {
 		res := &response.Response{
-			StatusCode:  e.StatusCode,
-			StatusText:  statusText,
-			Body:        []byte(body),
-			ContentType: contentType,
-			Size:        size,
-			CreatedAt:   e.CreatedAt,
+			ID:           resID,
+			RequestID:    resRequestID,
+			StatusCode:   e.StatusCode,
+			StatusText:   statusText,
+			Body:         []byte(body),
+			ContentType:  contentType,
+			Size:         size,
+			Duration:     time.Duration(resDurationNS),
+			EffectiveURL: effectiveURL,
+			CreatedAt:    e.CreatedAt,
 		}
 		if headersJSON != "" {
 			var h map[string]string
 			if err := json.Unmarshal([]byte(headersJSON), &h); err == nil {
 				res.Headers = h
 			}
+		}
+		if e.Error != "" {
+			res.Error = e.Error
 		}
 		e.Response = res
 	}

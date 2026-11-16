@@ -25,7 +25,7 @@ func TestAppRenders(t *testing.T) {
 	if !tt.HasText("Heartless") {
 		t.Fatalf("title bar missing, texts %q", tt.Texts())
 	}
-	for _, want := range []string{"Environments", "Settings", "Request", "Response"} {
+	for _, want := range []string{"Settings", "Request", "Response"} {
 		if !tt.HasText(want) {
 			t.Errorf("missing %q, texts %q", want, tt.Texts())
 		}

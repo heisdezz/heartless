@@ -81,26 +81,22 @@ func sidebar(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Serv
 				return
 			}
 			ui.Column(c).Padding(8, 8).Gap(6).AlignSelf(ui.Stretch).Opacity(1 - nav.Collapse).Children(func() {
-				field.Input(c, &st.searchQuery, field.InputProps{
-					Placeholder: "Search",
-					Prefix:      lucide.Search(),
-					Variant:     field.InputFilled,
+				ui.Row(c).AlignSelf(ui.Stretch).Gap(4).AlignItems(ui.Center).Children(func() {
+					// field.Input returns the inner text field, so wrap it to let the
+					// styled row flex beside the settings button.
+					ui.Box(c).Grow(1).Basis(0).MinWidth(0).Clip().Children(func() {
+						field.Input(c, &st.searchQuery, field.InputProps{
+							Placeholder: "Search",
+							Prefix:      lucide.Search(),
+							Variant:     field.InputFilled,
+						})
+					})
+					if action.Button(c, "Settings", action.ButtonProps{Variant: action.Text}).Clicked() {
+						st.router.Push("/settings")
+					}
 				})
 				if st.err != "" {
-					ui.Text(c, st.err).FontSize(12).TextColor(tk.Error).SingleLine()
-				}
-			})
-		},
-		Footer: func(nav layout.SideNavState) {
-			if !nav.Expanded {
-				return
-			}
-			ui.Row(c).Padding(12).Gap(4).Opacity(1 - nav.Collapse).Children(func() {
-				if action.Button(c, "Environments", action.ButtonProps{Variant: action.Text}).Clicked() {
-					st.router.Push("/environments")
-				}
-				if action.Button(c, "Settings", action.ButtonProps{Variant: action.Text}).Clicked() {
-					st.router.Push("/settings")
+					ui.Text(c, st.err).FontSize(textSize(c, 12)).TextColor(tk.Error).SingleLine()
 				}
 			})
 		},
@@ -119,10 +115,14 @@ func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Ser
 	body.Padding(0, 0, 8, 0)
 	if st.workspaceID == "" {
 		body.Children(func() {
-			ui.Text(c, "Create or select a workspace.").FontSize(13).TextColor(tk.TextTertiary).Padding(10, 0)
+			ui.Text(c, "Create or select a workspace.").FontSize(textSize(c, 13)).TextColor(tk.TextTertiary).Padding(10, 0)
 		})
 		return
 	}
+
+	// Refresh the set of requests that have saved responses, used to tint
+	// their names. This reads history once per workspace rather than per frame.
+	st.refreshRequestsWithResponses(services)
 
 	query := strings.ToLower(strings.TrimSpace(st.searchQuery))
 	cols := st.filteredCollections(query)
@@ -138,7 +138,7 @@ func treeBody(c *ui.Context, st *shellState, tk *theme.Tokens, services *app.Ser
 		list.Children(func() {
 			ui.Column(c).Grow(1).AlignSelf(ui.Stretch).MinWidth(0).Children(func() {
 				if len(cols) == 0 && query == "" {
-					ui.Text(c, "No collections yet — right-click here to add or import one.").FontSize(13).
+					ui.Text(c, "No collections yet — right-click here to add or import one.").FontSize(textSize(c, 13)).
 						TextColor(tk.TextTertiary).Padding(10, 0)
 				}
 				for i := range cols {
@@ -238,7 +238,11 @@ func requestRowAt(c *ui.Context, tk *theme.Tokens, st *shellState, services *app
 			field.Input(c, &st.renameValue, field.InputProps{Size: theme.Small, Variant: field.InputFilled}).Grow(1).Basis(0)
 			return
 		}
-		ui.Text(c, req.Name).FontSize(12).SingleLine().TextColor(textColor(tk, selected))
+		nameColor := textColor(tk, selected)
+		if st.requestHasResponse(req.ID) {
+			nameColor = requestTypeColor(tk, req)
+		}
+		ui.Text(c, req.Name).FontSize(textSize(c, 12)).SingleLine().TextColor(nameColor)
 	})
 	if st.renameRequestID == req.ID {
 		if action.Button(c, "Save", action.ButtonProps{Variant: action.Text, Size: theme.Small}).Clicked() {
@@ -275,9 +279,22 @@ func methodBadge(c *ui.Context, tk *theme.Tokens, req *domainreq.Request) {
 		if label == "" {
 			label = "GET"
 		}
-		color = methodColor(tk, label)
+		color = requestTypeColor(tk, req)
 	}
-	ui.Text(c, label).Font("monospace").FontSize(10).FontWeight(700).TextColor(color).Width(34).SingleLine()
+	ui.Text(c, label).Font("monospace").FontSize(textSize(c, 10)).FontWeight(700).TextColor(color).Width(34).SingleLine()
+}
+
+// requestTypeColor is the type color used for both the method badge and the
+// name of a request that has a saved response.
+func requestTypeColor(tk *theme.Tokens, req *domainreq.Request) ui.Color {
+	if req.Kind != domainreq.KindHTTP {
+		return tk.TextTertiary
+	}
+	method := req.Method
+	if method == "" {
+		method = "GET"
+	}
+	return methodColor(tk, method)
 }
 
 // treeRow draws a tree row with an expand chevron, icon and label, left-aligned.
@@ -295,11 +312,11 @@ func treeRow(c *ui.Context, tk *theme.Tokens, key, label string, depth int, open
 		if open {
 			chev = lucide.ChevronDown()
 		}
-		ui.Icon(c, chev).FontSize(12).TextColor(tk.TextTertiary)
+		ui.Icon(c, chev).FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
 		if icon != nil {
-			ui.Icon(c, icon).FontSize(14).TextColor(tk.TextSecondary)
+			ui.Icon(c, icon).FontSize(textSize(c, 14)).TextColor(tk.TextSecondary)
 		}
-		ui.Text(c, label).FontSize(12).SingleLine().TextColor(tk.Text)
+		ui.Text(c, label).FontSize(textSize(c, 12)).SingleLine().TextColor(tk.Text)
 	})
 	return row
 }

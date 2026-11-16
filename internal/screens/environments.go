@@ -59,21 +59,21 @@ func environmentCard(c *ui.Context, tk *theme.Tokens, st *shellState, services *
 	}
 	row.Children(func() {
 		ui.Box(c).Width(28).Height(28).Center().Radius(tk.BorderRadiusSM).Background(tk.FillSecondary).Children(func() {
-			ui.Icon(c, lucide.Database()).FontSize(14).TextColor(tk.TextSecondary)
+			ui.Icon(c, lucide.Database()).FontSize(textSize(c, 14)).TextColor(tk.TextSecondary)
 		})
 
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, env.Name).FontWeight(500).SingleLine()
 			n := len(st.variablesForEnvironment(env.ID))
-			ui.Text(c, plural(n, "variable", "variables")).FontSize(12).TextColor(tk.TextTertiary).SingleLine()
+			ui.Text(c, plural(n, "variable", "variables")).FontSize(textSize(c, 12)).TextColor(tk.TextTertiary).SingleLine()
 		})
 
 		if active {
 			ui.Box(c).PaddingX(8).Height(20).Center().Radius(10).Background(tk.PrimaryFillSecondary).Children(func() {
-				ui.Text(c, "Active").FontSize(11).FontWeight(500).TextColor(tk.Primary)
+				ui.Text(c, "Active").FontSize(textSize(c, 11)).FontWeight(500).TextColor(tk.Primary)
 			})
 		}
-		ui.Icon(c, lucide.ChevronRight()).FontSize(14).TextColor(tk.TextTertiary)
+		ui.Icon(c, lucide.ChevronRight()).FontSize(textSize(c, 14)).TextColor(tk.TextTertiary)
 	})
 	if row.Clicked() {
 		st.openEnvironment(env.ID, services)
@@ -111,8 +111,8 @@ func environmentDetailView(c *ui.Context, tk *theme.Tokens, st *shellState, serv
 			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.Start).Padding(24, 24).Gap(6).Children(func() {
 				vars := st.variablesForEnvironment(env.ID)
 				ui.Row(c).Height(28).PaddingX(2).Children(func() {
-					ui.Text(c, "Name").Grow(3).Basis(0).FontSize(12).FontWeight(600).TextColor(tk.TextTertiary)
-					ui.Text(c, "Value").Grow(5).Basis(0).FontSize(12).FontWeight(600).TextColor(tk.TextTertiary)
+					ui.Text(c, "Name").Grow(3).Basis(0).FontSize(textSize(c, 12)).FontWeight(600).TextColor(tk.TextTertiary)
+					ui.Text(c, "Value").Grow(5).Basis(0).FontSize(textSize(c, 12)).FontWeight(600).TextColor(tk.TextTertiary)
 					ui.Box(c).Width(64)
 				})
 				if len(vars) == 0 {
@@ -160,9 +160,9 @@ func variableRow(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 // emptyState centers an icon, title and hint.
 func emptyState(c *ui.Context, tk *theme.Tokens, icon *ui.SVG, title, hint string) {
 	ui.Column(c).Padding(48).Gap(6).Center().Children(func() {
-		ui.Icon(c, icon).FontSize(28).TextColor(tk.TextTertiary)
-		ui.Text(c, title).FontSize(15).FontWeight(600)
-		ui.Text(c, hint).FontSize(13).TextColor(tk.TextSecondary)
+		ui.Icon(c, icon).FontSize(textSize(c, 28)).TextColor(tk.TextTertiary)
+		ui.Text(c, title).FontSize(textSize(c, 15)).FontWeight(600)
+		ui.Text(c, hint).FontSize(textSize(c, 13)).TextColor(tk.TextSecondary)
 	})
 }
 
@@ -170,9 +170,9 @@ func emptyState(c *ui.Context, tk *theme.Tokens, icon *ui.SVG, title, hint strin
 func pageHeader(c *ui.Context, tk *theme.Tokens, title, subtitle string) {
 	ui.Column(c).MinWidth(0).Padding(24, 16).Gap(2).BorderWidth(0, 0, 1, 0).
 		BorderColor(tk.BorderSecondary).Children(func() {
-		ui.Text(c, title).FontSize(18).FontWeight(600).SingleLine()
+		ui.Text(c, title).FontSize(textSize(c, 18)).FontWeight(600).SingleLine()
 		if subtitle != "" {
-			ui.Text(c, subtitle).FontSize(13).TextColor(tk.TextSecondary).SingleLine()
+			ui.Text(c, subtitle).FontSize(textSize(c, 13)).TextColor(tk.TextSecondary).SingleLine()
 		}
 	})
 }

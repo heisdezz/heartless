@@ -126,7 +126,7 @@ func createEnvironmentModal(c *ui.Context, st *shellState, services *app.Service
 		CancelText: "Close",
 	}, func() {
 		ui.Column(c).Gap(8).Children(func() {
-			ui.Text(c, "Name").FontSize(13).TextColor(theme.TokensOf(c).TextSecondary)
+			ui.Text(c, "Name").FontSize(textSize(c, 13)).TextColor(theme.TokensOf(c).TextSecondary)
 			field.Input(c, &st.newEnvName, field.InputProps{Placeholder: "Development"})
 		})
 	}) {
@@ -148,7 +148,7 @@ func importCollectionModal(c *ui.Context, st *shellState, services *app.Services
 			if st.importCollectionBusy {
 				ui.Text(c, "Importing…").TextColor(tk.TextSecondary)
 			}
-			ui.Text(c, "Import from URL").FontSize(13).TextColor(tk.TextSecondary)
+			ui.Text(c, "Import from URL").FontSize(textSize(c, 13)).TextColor(tk.TextSecondary)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				field.Input(c, &st.importCollectionURL, field.InputProps{Placeholder: "https://…/collection.json"}).Grow(1).Basis(0).MinWidth(0)
 				disabled := st.importCollectionBusy || strings.TrimSpace(st.importCollectionURL) == "" || st.workspaceID == ""
@@ -163,7 +163,7 @@ func importCollectionModal(c *ui.Context, st *shellState, services *app.Services
 
 			ui.Box(c).Height(1).AlignSelf(ui.Stretch).Background(tk.BorderSecondary)
 
-			ui.Text(c, "Import from file").FontSize(13).TextColor(tk.TextSecondary)
+			ui.Text(c, "Import from file").FontSize(textSize(c, 13)).TextColor(tk.TextSecondary)
 			field.Upload(c, field.UploadProps{
 				Accept:      ".json,application/json,text/json",
 				Multiple:    false,
@@ -180,10 +180,10 @@ func importCollectionModal(c *ui.Context, st *shellState, services *app.Services
 			}, nil)
 
 			if st.importCollectionErr != "" {
-				ui.Text(c, st.importCollectionErr).FontSize(12).TextColor(tk.Error)
+				ui.Text(c, st.importCollectionErr).FontSize(textSize(c, 12)).TextColor(tk.Error)
 			}
 			if st.workspaceID == "" {
-				ui.Text(c, "Select a workspace first.").FontSize(12).TextColor(tk.TextTertiary)
+				ui.Text(c, "Select a workspace first.").FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
 			}
 		})
 	}) {

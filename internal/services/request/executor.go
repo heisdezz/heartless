@@ -114,8 +114,16 @@ func (e *Executor) Execute(ctx context.Context, req *domain.Request) (*response.
 			res.Error = err.Error()
 		}
 	}
-	if res != nil && result.Duration == 0 {
-		result.Duration = res.Duration
+	if res != nil {
+		if res.RequestID == "" {
+			res.RequestID = resolved.ID
+		}
+		if res.Duration == 0 {
+			res.Duration = end.Sub(start)
+		}
+	}
+	if result.Duration == 0 {
+		result.Duration = end.Sub(start)
 	}
 	e.record(ctx, resolved, result)
 	return result, nil

@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"context"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -60,7 +61,7 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 				DragWindow().
 				Children(func() {
 					appLabel(c, tk)
-					ui.Icon(c, lucide.ChevronRight()).FontSize(14).TextColor(tk.TextTertiary)
+					ui.Icon(c, lucide.ChevronRight()).FontSize(textSize(c, 14)).TextColor(tk.TextTertiary)
 
 					wsName := "No workspace"
 					if ws, ok := st.currentWorkspace(); ok {
@@ -70,15 +71,32 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 						workspaceChip(t, c, tk, wsName)
 					})
 
-					ui.Icon(c, lucide.ChevronRight()).FontSize(14).TextColor(tk.TextTertiary)
+					ui.Icon(c, lucide.ChevronRight()).FontSize(textSize(c, 14)).TextColor(tk.TextTertiary)
 
-					// Environment: opens the environment page to select or create one.
+					// Environment: left-click opens the environment page; right-click
+					// offers the workspace's environments to switch to, plus a link to
+					// the environment settings page.
 					envLabel := "No environment"
 					if env, ok := st.currentEnvironment(); ok {
 						envLabel = env.Name
 					}
-					if action.Button(c, envLabel, action.ButtonProps{Variant: action.Text}).Clicked() {
+					envButton := action.Button(c, envLabel, action.ButtonProps{Variant: action.Text})
+					if envButton.Clicked() {
 						st.router.Push("/environments")
+					}
+					if chosen := overlay.ContextMenu(c, envButton, overlay.DropdownMenuProps{Items: environmentMenuItems(st)}); chosen != "" {
+						switch {
+						case chosen == "env-settings":
+							if st.environmentID != "" {
+								st.router.Push("/environments/" + st.environmentID)
+							} else {
+								st.router.Push("/environments")
+							}
+						default:
+							if id, ok := parseEnvKey(chosen); ok {
+								st.setActiveEnvironment(context.Background(), services, id)
+							}
+						}
 					}
 
 					ui.Box(c).Grow(1)
@@ -116,7 +134,7 @@ func appLabel(c *ui.Context, tk *theme.Tokens) {
 	if !c.WindowActive() {
 		color = tk.TextTertiary
 	}
-	ui.Text(c, "Heartless").Bold().FontSize(13).TextColor(color).SingleLine()
+	ui.Text(c, "Heartless").Bold().FontSize(textSize(c, 13)).TextColor(color).SingleLine()
 }
 
 // windowControls draws the window's buttons where the platform draws none: the
@@ -162,7 +180,7 @@ func windowButton(c *ui.Context, tk *theme.Tokens, key, label string, icon *ui.S
 		glyph = tk.Text
 	}
 	btn.Children(func() {
-		ui.Icon(c, icon).FontSize(14).TextColor(glyph)
+		ui.Icon(c, icon).FontSize(textSize(c, 14)).TextColor(glyph)
 	})
 	return btn
 }
@@ -178,7 +196,7 @@ func currentWindow(st *shellState) *mygo.Window {
 
 // workspaceChip styles the workspace dropdown's trigger as a pill.
 func workspaceChip(t ui.Element, c *ui.Context, tk *theme.Tokens, name string) {
-	t.FontSize(13).Height(24).PaddingX(8).Gap(6).Radius(tk.BorderRadiusSM).
+	t.FontSize(textSize(c, 13)).Height(24).PaddingX(8).Gap(6).Radius(tk.BorderRadiusSM).
 		AlignItems(ui.Center).TextColor(tk.Text).
 		Transition(ui.ElementTransition{Duration: 120 * time.Millisecond, Colors: true})
 	if t.Hovered() {
@@ -188,7 +206,7 @@ func workspaceChip(t ui.Element, c *ui.Context, tk *theme.Tokens, name string) {
 	}
 	t.Children(func() {
 		ui.Text(c, name).SingleLine()
-		ui.Icon(c, lucide.ChevronDown()).FontSize(12).TextColor(tk.TextTertiary)
+		ui.Icon(c, lucide.ChevronDown()).FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
 	})
 }
 
@@ -211,6 +229,33 @@ func workspaceMenuItems(st *shellState) []overlay.MenuItem {
 		overlay.MenuItem{Key: "clear-history", Label: "Clear Send History", Icon: lucide.History(), Danger: true},
 	)
 	return items
+}
+
+// environmentMenuItems builds the environment switcher shown on a right-click
+// of the active environment chip, with a link to environment settings.
+func environmentMenuItems(st *shellState) []overlay.MenuItem {
+	items := make([]overlay.MenuItem, 0, len(st.environments)+2)
+	for _, env := range st.environments {
+		it := overlay.MenuItem{Key: "env:" + env.ID, Label: env.Name}
+		if env.ID == st.environmentID {
+			it.Icon = lucide.Check()
+		}
+		items = append(items, it)
+	}
+	if len(items) > 0 {
+		items = append(items, overlay.MenuItem{Divider: true})
+	}
+	items = append(items, overlay.MenuItem{Key: "env-settings", Label: "Environment Settings", Icon: lucide.Settings()})
+	return items
+}
+
+// parseEnvKey extracts the environment ID from an "env:<id>" menu key.
+func parseEnvKey(key string) (string, bool) {
+	const prefix = "env:"
+	if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+		return key[len(prefix):], true
+	}
+	return "", false
 }
 
 // parseWorkspaceKey extracts the workspace ID from a "ws:<id>" menu key.

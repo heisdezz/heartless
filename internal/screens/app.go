@@ -40,7 +40,11 @@ type requestState struct {
 	URL      string
 	Body     string
 	BodyType string // "json", "text", "graphql", "form", "multipart", "binary", "none"
-	Tab      int    // 0 Params, 1 Headers, 2 Body
+	Tab      int    // 0 Params, 1 Headers, 2 Body, 3 Auth, 4 Script
+
+	// Script is the post-response script, kept with the request so it is saved
+	// alongside the other fields.
+	Script string
 
 	// Form rows back the form-data and multipart body types.
 	Form []*kv
@@ -55,6 +59,15 @@ type requestState struct {
 	ResponseTab int
 	sentBody    string
 	copyNotice  string
+
+	// historyLoaded is set once a previously persisted response has been
+	// looked up for this request, so the lookup happens only on first open.
+	historyLoaded bool
+
+	// script holds the last post-response script run's output, and whether its
+	// variable updates have been written back to the database.
+	script    *scriptRun
+	scriptGen uint64 // increments per queued run, so stale results are dropped
 
 	// Auth is the request's authentication; AuthToken, AuthUser and AuthPass
 	// back the editor fields for the current auth type.
@@ -71,6 +84,13 @@ type kv struct {
 	Key   string
 	Value string
 	On    bool
+}
+
+// scriptRun is the outcome of the last post-response script run for a request.
+type scriptRun struct {
+	result  *ScriptResult
+	applied bool // the variable updates were written back
+	err     string
 }
 
 // shellState holds mutable state for the shell UI.
@@ -126,11 +146,25 @@ type shellState struct {
 	settingsSection settingsSection
 	themeVariant    int
 	themeConfig     *theme.Config
-	searchQuery     string
+	// themeSaved is the settings themeConfig was built from, so a saved change
+	// is rebuilt once.
+	themeSaved  config.ApplicationSettings
+	searchQuery string
 
 	// requestStates keeps each open request's editor and response, keyed by
 	// request ID. They are isolated from one another.
 	requestStates map[string]*requestState
+
+	// runner executes post-response scripts off the frame loop. It is created
+	// by the view the first time a script needs it.
+	runner *scriptRunner
+
+	// requestsWithResponses tracks which requests have a response persisted in
+	// history, so the sidebar can tint their names. It is scanned from history
+	// once per workspace and updated after each send.
+	requestsWithResponses map[string]bool
+	responsesScanned      bool
+	responsesWorkspaceID  string
 }
 
 func (s *shellState) currentWorkspace() (domainws.Workspace, bool) {
@@ -808,8 +842,7 @@ func (s *shellState) nextRequestName(colID string, kind domainreq.Kind) string {
 
 // App renders the main application view.
 func App(c *ui.Context, services *app.Services) {
-	tk := theme.TokensOf(c)
-	root := ui.Column(c).Fill().Background(tk.BgLayout)
+	root := ui.Column(c).Fill()
 
 	st := ui.Local(root, "shell", func() shellState {
 		return shellState{
@@ -819,6 +852,20 @@ func App(c *ui.Context, services *app.Services) {
 		}
 	})
 	st.load(context.Background(), services)
+
+	// Theme the frame from the saved settings: loading them here, rather than
+	// only on the settings page, is what lets the app start with the user's
+	// theme and font size. A saved change rebuilds the config, so it applies
+	// at once.
+	st.ensureSettings(services)
+	if st.themeConfig == nil || st.themeSaved.Theme != st.settings.Theme ||
+		st.themeSaved.Interface.FontSize != st.settings.Interface.FontSize {
+		st.themeConfig = ThemeConfig(st.settings)
+		st.themeSaved = st.settings
+	}
+	st.themeConfig.Apply(c)
+	tk := theme.TokensOf(c)
+	root.Background(tk.BgLayout)
 
 	root.Children(func() {
 		titleBar(c, tk, st, services)
@@ -961,13 +1008,13 @@ func contextHeader(c *ui.Context, tk *theme.Tokens, title string) {
 func pane(c *ui.Context, tk *theme.Tokens, title, hint string) {
 	ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 		ui.Row(c).
-			Height(36).
+			Height(max(36, textSize(c, 13)+23)).
 			Padding(0, 12).
 			AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).
 			BorderColor(tk.BorderSecondary).
 			Children(func() {
-				ui.Text(c, title).FontSize(13).Bold()
+				ui.Text(c, title).FontSize(textSize(c, 13)).Bold()
 			})
 
 		ui.Column(c).Grow(1).Basis(0).Center().Gap(6).Padding(24).Children(func() {

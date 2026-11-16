@@ -61,7 +61,7 @@ func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 
 	bar.Height(40).AlignSelf(ui.Stretch).AlignItems(ui.Center).Gap(8).
 		BorderWidth(0, 0, 1, 0).BorderColor(tk.BorderSecondary).PaddingY(0).Children(func() {
-		ui.Text(c, "Auth").FontSize(13).FontWeight(600).TextColor(tk.Text).Shrink(0)
+		ui.Text(c, "Auth").FontSize(textSize(c, 13)).FontWeight(600).TextColor(tk.Text).Shrink(0)
 
 		ui.Box(c).Shrink(0).Children(func() {
 			chosen := overlay.DropdownMenu(c, open, overlay.DropdownMenuProps{Items: authMenuItems(rs.Auth.Type)}, func(t ui.Element) {
@@ -89,11 +89,11 @@ func authTrigger(t ui.Element, c *ui.Context, tk *theme.Tokens, rs *requestState
 		t.Background(tk.FillTertiary)
 	}
 	t.Children(func() {
-		ui.Text(c, authShortLabel(rs.Auth.Type)).FontSize(13)
+		ui.Text(c, authShortLabel(rs.Auth.Type)).FontSize(textSize(c, 13))
 		if authApplied(rs.Auth) {
-			ui.Icon(c, lucide.Asterisk()).FontSize(11).TextColor(tk.Success)
+			ui.Icon(c, lucide.Asterisk()).FontSize(textSize(c, 11)).TextColor(tk.Success)
 		}
-		ui.Icon(c, lucide.ChevronDown()).FontSize(12).TextColor(tk.TextTertiary)
+		ui.Icon(c, lucide.ChevronDown()).FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
 	})
 }
 
@@ -174,7 +174,7 @@ func authFields(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 // authTextField renders a label over a full-width input in a capped column.
 func authTextField(c *ui.Context, tk *theme.Tokens, name string, value *string, placeholder string) {
 	ui.Column(c).AlignSelf(ui.Stretch).MaxWidth(560).Gap(6).Children(func() {
-		ui.Text(c, name).FontSize(12).FontWeight(500).TextColor(tk.TextSecondary)
+		ui.Text(c, name).FontSize(textSize(c, 12)).FontWeight(500).TextColor(tk.TextSecondary)
 		ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Clip().Children(func() {
 			field.Input(c, value, field.InputProps{Placeholder: placeholder}).Grow(1).Basis(0).Font("monospace")
 		})
@@ -183,10 +183,10 @@ func authTextField(c *ui.Context, tk *theme.Tokens, name string, value *string, 
 
 // authHint explains how the credentials are sent.
 func authHint(c *ui.Context, tk *theme.Tokens, text string) {
-	ui.Text(c, text).FontSize(11).TextColor(tk.TextTertiary).MaxWidth(560)
+	ui.Text(c, text).FontSize(textSize(c, 11)).TextColor(tk.TextTertiary).MaxWidth(560)
 }
 
 // authNote fills the tab when the type takes no credentials.
 func authNote(c *ui.Context, tk *theme.Tokens, text string) {
-	ui.Text(c, text).FontSize(13).TextColor(tk.TextTertiary)
+	ui.Text(c, text).FontSize(textSize(c, 13)).TextColor(tk.TextTertiary)
 }

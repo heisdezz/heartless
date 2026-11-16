@@ -31,6 +31,8 @@ type Request struct {
 	Params       map[string]string `json:"params,omitempty" db:"-"`
 	Body         string            `json:"body,omitempty" db:"body"`
 	BodyType     string            `json:"body_type,omitempty" db:"body_type"`
+	// Script is the JavaScript run after the response arrives.
+	Script string `json:"script,omitempty" db:"script"`
 	// Auth is the request's authentication, applied at execution time.
 	Auth      Auth      `json:"auth,omitempty" db:"-"`
 	SortOrder int       `json:"sort_order,omitempty" db:"sort_order"`

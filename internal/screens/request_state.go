@@ -15,6 +15,8 @@ import (
 	domainreq "heartless/internal/domain/request"
 	domainres "heartless/internal/domain/response"
 	domainvar "heartless/internal/domain/variable"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // mu guards requestStates and the fields of its values, which background
@@ -34,6 +36,7 @@ func (s *shellState) requestStateFor(req domainreq.Request) *requestState {
 			URL:      req.URL,
 			Body:     req.Body,
 			BodyType: string(req.BodyType),
+			Script:   req.Script,
 			Params:   paramsToRows(req.Params),
 			Headers:  paramsToRows(req.Headers),
 			Auth:     req.Auth,
@@ -47,6 +50,90 @@ func (s *shellState) requestStateFor(req domainreq.Request) *requestState {
 		s.requestStates[req.ID] = rs
 	}
 	return rs
+}
+
+// loadResponseFromHistory seeds a newly opened request's response from the most
+// recent persisted history entry, so a previous result is visible without
+// re-sending. It runs at most once per request state and never overwrites a
+// response produced by a send.
+func (s *shellState) loadResponseFromHistory(services *app.Services, reqID string, rs *requestState) {
+	if rs == nil || rs.historyLoaded || reqID == "" || services == nil || services.History == nil {
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	rs.historyLoaded = true
+	if rs.response != nil {
+		return
+	}
+	entry, err := services.History.LatestByRequestID(context.Background(), reqID)
+	if err != nil || entry == nil {
+		return
+	}
+	if entry.Error != "" {
+		rs.error = entry.Error
+	}
+	if entry.Response == nil {
+		return
+	}
+	res := entry.Response
+	rs.response = &domainres.ExecutionResult{
+		RequestID: reqID,
+		Response:  res,
+		Duration:  res.Duration,
+		StartedAt: res.CreatedAt,
+		EndedAt:   res.CreatedAt,
+	}
+}
+
+// refreshRequestsWithResponses scans history for requests that have a saved
+// response and caches the set for the active workspace, so the sidebar can
+// tint their names without querying the database on every frame.
+func (s *shellState) refreshRequestsWithResponses(services *app.Services) {
+	if services == nil || services.History == nil || s.workspaceID == "" {
+		return
+	}
+	mu.Lock()
+	scanned, scannedWorkspace := s.responsesScanned, s.responsesWorkspaceID
+	mu.Unlock()
+	if scanned && scannedWorkspace == s.workspaceID {
+		return
+	}
+	set := make(map[string]bool)
+	ids, err := services.History.RequestIDsWithResponses(context.Background(), s.workspaceID)
+	if err == nil {
+		for _, id := range ids {
+			set[id] = true
+		}
+	}
+	mu.Lock()
+	s.responsesScanned = true
+	s.responsesWorkspaceID = s.workspaceID
+	s.requestsWithResponses = set
+	mu.Unlock()
+}
+
+// markRequestHasResponse records that a request now has a response persisted,
+// so its name is tinted immediately after a send without rescanning history.
+func (s *shellState) markRequestHasResponse(reqID string) {
+	if reqID == "" {
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if s.requestsWithResponses == nil {
+		s.requestsWithResponses = make(map[string]bool)
+	}
+	s.requestsWithResponses[reqID] = true
+	s.responsesScanned = true
+	s.responsesWorkspaceID = s.workspaceID
+}
+
+// requestHasResponse reports whether reqID has a response saved in history.
+func (s *shellState) requestHasResponse(reqID string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return s.requestsWithResponses != nil && s.requestsWithResponses[reqID]
 }
 
 // paramsToRows turns a map into editable rows.
@@ -138,6 +225,17 @@ func encodeForm(params map[string]string) string {
 	return v.Encode()
 }
 
+// responseOf returns the response currently shown for the request, under the
+// lock, for a script run.
+func (rs *requestState) responseOf() *domainres.Response {
+	mu.Lock()
+	defer mu.Unlock()
+	if rs.response == nil {
+		return nil
+	}
+	return rs.response.Response
+}
+
 // send runs the request in the background. The pane only shows this request's
 // own result, so a send never affects another request's state.
 func (s *shellState) send(services *app.Services, req domainreq.Request, invalidate func()) {
@@ -178,10 +276,27 @@ func (s *shellState) send(services *app.Services, req domainreq.Request, invalid
 		}
 		mu.Unlock()
 
+		// The post-response script runs on its own goroutine from here, so a
+		// slow script never holds up the response that just arrived.
+		s.runScriptOnResponse(nil, services, req, rs)
+
 		if invalidate != nil {
 			invalidate()
 		}
 	}()
+}
+
+// runScriptOnResponse queues the request's post-response script after a send
+// finishes, so it sees the response that just arrived. c may be nil, as when
+// a send is made without a frame; the result is then shown on the next frame.
+func (s *shellState) runScriptOnResponse(c *ui.Context, services *app.Services, req domainreq.Request, rs *requestState) {
+	if rs == nil || rs.Script == "" {
+		return
+	}
+	if s.runner == nil {
+		s.runner = newScriptRunner()
+	}
+	s.runner.queueScript(c, s, services, req, rs)
 }
 
 // resolverVariables returns the variables the active environment and workspace

@@ -9,7 +9,8 @@ import (
 
 // ThemeConfig builds a Lobe MyGO theme Config from the saved settings. The
 // light and dark token sets are the library defaults, with the accent and
-// background colors overridden when the user set them.
+// background colors overridden when the user set them, and the interface
+// font size scaled.
 //
 // Keep the returned Config for the app's life: every Config is remembered, and
 // TokensOf looks it up by the theme the frame uses.
@@ -19,7 +20,32 @@ func ThemeConfig(s config.ApplicationSettings) *theme.Config {
 
 	applyThemeSettings(&light, s.Theme, false)
 	applyThemeSettings(&dark, s.Theme, true)
+	applyFontSize(&light, s.Interface.FontSize)
+	applyFontSize(&dark, s.Interface.FontSize)
 	return theme.NewConfig(light, dark)
+}
+
+// applyFontSize scales a token set's text from the interface font size, which
+// zero leaves at the library's default.
+func applyFontSize(t *theme.Tokens, size int) {
+	if size <= 0 {
+		return
+	}
+	scale := float32(size) / t.FontSize
+	t.FontSize = float32(size)
+	t.FontSizeSM = t.FontSizeSM * scale
+	t.FontSizeLG = t.FontSizeLG * scale
+}
+
+// baseFontSize is the interface font size the hand-tuned sizes in the screens
+// were laid out at: textSize's sizes are relative to it.
+const baseFontSize float32 = 14
+
+// textSize scales a text size tuned against baseFontSize to the frame's font
+// size, so the interface font size setting resizes labels, icons and code
+// alike. The theme's font size is the one chosen in settings.
+func textSize(c *ui.Context, size float32) float32 {
+	return c.Theme().Rem(size / baseFontSize)
 }
 
 // ThemeIsDark reports whether the saved theme asks for the dark variant.

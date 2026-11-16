@@ -193,6 +193,23 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 `,
 	},
+	{
+		version: 10,
+		name:    "history_response_metadata",
+		up: `
+ALTER TABLE execution_history ADD COLUMN response_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_history ADD COLUMN response_request_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_history ADD COLUMN response_duration_ns INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE execution_history ADD COLUMN effective_url TEXT NOT NULL DEFAULT '';
+`,
+	},
+	{
+		version: 11,
+		name:    "request_script",
+		up: `
+ALTER TABLE requests ADD COLUMN script TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.
