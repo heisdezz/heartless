@@ -196,8 +196,7 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 - Depends on: UI-APP-SHELL, P1-HTTP-TRANSPORT (for send), P1-VARIABLE-RESOLUTION
 - Allowed paths/scope: `internal/screens/**`, GUI request editor components
 - Acceptance: HTTP request authoring UI (method/url/params/headers/body/settings) with draft state, validation feedback, send/cancel integration.
-- Notes:
-  - 
+- ## Notes:
 
 ### UI-RESPONSE-PANEL: Response/timeline/history views
 - Status: todo
@@ -206,8 +205,7 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 - Depends on: UI-APP-SHELL, P1-HTTP-TRANSPORT, P1-HISTORY
 - Allowed paths/scope: `internal/screens/**`, GUI response/history components
 - Acceptance: Renders structured execution results, metadata, body/timeline/history views; handles loading/error/cancel states.
-- Notes:
-  - 
+- ## Notes:
 
 ### UI-ENV-AUTH: Environment and authentication UI
 - Status: review
@@ -231,6 +229,20 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 - Acceptance: Native OS title bar hidden; app draws a single custom draggable title bar with themed minimize/maximize/restore/close controls wired to the window; workspace/env breadcrumb and back navigation preserved; targeted `go build`/`go test`/`go vet` pass.
 - Notes:
   - 2026-11-14T03:37:00Z: Claimed per user request (dislikes the native window title bar; wants a custom one). Scope overlaps UI-APP-SHELL (`internal/screens/**`, `main.go`) which is in `review` with kilo idle — recorded here per rule 3 before touching those files; UI-APP-SHELL block left untouched. Approach: `mygo.TitleBarHidden` (+ possibly `HideWindowButtons`) with a custom-drawn bar in `internal/screens/titlebar.go`.
+
+### UI-REQUEST-SCRIPT: Post-response scripting tab
+- Status: done
+- Owner: (completed)
+- Updated: 2026-11-16T17:11:00Z
+- Depends on: UI-REQUEST-EDITOR, P1-HTTP-TRANSPORT
+- Allowed paths/scope: `internal/screens/script*.go`, `internal/screens/request_script_tab.go`, `internal/domain/request/request.go` (script field), `internal/storage/sqlite/collection/**`, `internal/storage/sqlite/migrate.go`, `go.mod`
+- Acceptance: A Script tab holds a post-response JavaScript hook; scripts see `req` and `res` and can read/update environment variables; the editor highlights syntax and `{{variables}}`; the script runs automatically when a response arrives; scripts are sandboxed and time-limited.
+- Notes:
+  - 2026-11-16: Added `Script` to the request domain and migration v11 (`requests.script`), persisted through the collection repository.
+  - 2026-11-16: Added an isolated goja runtime (`internal/screens/script.go`) exposing `req`, `res` (with `res.json()`), `env.get/set/all`, `test(name, fn)` and `console.*`, with a 2s interrupt and no network/filesystem access. Updated variables are returned rather than persisted, so the pane shows each `old → new` before saving.
+  - 2026-11-16: `internal/screens/script_runner.go` runs scripts on a dedicated goroutine so a slow script never stalls a frame; results are applied under the state lock and a per-request generation counter drops superseded sends.
+  - 2026-11-16: The tab is a single inline editor colored in place via `TextRanges` (`script_highlight.go`), replacing an earlier split editor/preview layout. Variables are colored over their enclosing string and bold; undefined ones use the warning color.
+  - 2026-11-16: `go vet ./internal/...` clean; 8 tests in `script_test.go` pass, covering the runtime, variable updates, assertions, rune-offset highlighting, auto-run after a real send, and the tab's save/run path.
 
 ## Documentation Workstreams
 
@@ -285,7 +297,7 @@ Multi-agent progress tracker for Heartless. This file is the coordination source
 - Acceptance: Postman (v2.0/v2.1) and Insomnia (v4/v5) sources detected, parsed into a normalized draft, validated, conflict-checked, and persisted transactionally as collections/folders/requests (including headers/params) into a target workspace; unsupported/conflicting data reported as issues; no GUI dependencies; targeted `go build`/`go test`/`go vet` pass.
 - Notes:
   - 2026-11-14T02:33:00Z: Claimed next non-UI task. Scope linkage recorded per rule 3 before touching P0-STORAGE-SQLITE-owned files: `internal/storage/sqlite/migrate.go` (register migration v4 adding `requests.headers`/`requests.params`) and `internal/storage/sqlite/collection/repository.go` (persist headers/params, extract save helpers, add atomic `ImportBatch`). Additions limited to import persistence; existing method signatures unchanged.
-  - 2026-11-14T03:28:00Z: Implementation complete, set to review. Supersedes the "migration v4" wording above: another agent took v4 (`execution_history`) concurrently, so the headers/params migration was added as **v5 `request_headers_params`**. Added: `internal/importer` (format-neutral `Draft`/`Item`/`Issue`/`Importer` contract + `Select` + `Text`/`Description` helpers), `internal/importer/postman` (v2.0/v2.1: nested folders, string/object URLs, query+path params, headers, raw/urlencoded/formdata/graphql bodies; auth/scripts/collection-variables/file-bodies reported as issues), `internal/importer/insomnia` (v4 `resources` + v5 `collection` exports; grpc/websocket/environment/api-spec/auth reported as issues, orphan detection). Exported service contract: `internal/services/importer` — `New(Deps{Workspaces, Collections, Importers})`, `Service.Import(ctx, workspaceID, data, Options) (*Result, error)` with `ConflictPolicy` rename/skip, sentinel errors `ErrUnsupportedFormat`/`ErrWorkspaceNotFound`/`ErrEmptyImport`, `Result{Format, Collections, Folders, Requests, CreatedIDs, Issues}`; normalization: default names, method uppercased/`GET`, kind validation, enabled-only headers/params with first-wins duplicate warnings. Storage linkage (declared scope): migration v5 in `internal/storage/sqlite/migrate.go`; `internal/storage/sqlite/collection/repository.go` persists `headers`/`params` JSON (`encodeNV`/`decodeNV`, Save/Get/List) with Save* bodies extracted over an `execer` interface; new `batch.go` `Repository.ImportBatch` writes collections/folders/requests in one `sqlite.Tx`. Verification: `go build ./...` pass; `go test ./internal/importer/... ./internal/services/importer/... ./internal/storage/sqlite/...` pass (adapter fixtures, service unit fakes + SQLite integration incl. conflict rename and rollback); `go vet` on touched packages pass. Follow-ups (out of scope): wire into `app.Services` (P0-APP-BOOTSTRAP), environment/variable + auth import (currently reported as issues), OpenAPI/native/curl importers, `docs/features/import-export.md` update; pre-existing root `main_test.go` compile failure (`undefined: lo`) untouched.
+  - 2026-11-14T03:28:00Z: Implementation complete, set to review. Supersedes the "migration v4" wording above: another agent took v4 (`execution_history`) concurrently, so the headers/params migration was added as **v5 `request_headers_params`**. Added: `internal/importer` (format-neutral `Draft`/`Item`/`Issue`/`Importer` contract + `Select` + `Text`/`Description` helpers), `internal/importer/postman` (v2.0/v2.1: nested folders, string/object URLs, query+path params, headers, raw/urlencoded/formdata/graphql bodies; auth/scripts/collection-variables/file-bodies reported as issues), `internal/importer/insomnia` (v4 `resources` + v5 `collection` exports; grpc/websocket/environment/api-spec/auth reported as issues, orphan detection). Exported service contract: `internal/services/importer` — `New(Deps{Workspaces, Collections, Importers})`, `Service.Import(ctx, workspaceID, data, Options) (*Result, error)` with `ConflictPolicy` rename/skip, sentinel errors `ErrUnsupportedFormat`/`ErrWorkspaceNotFound`/`ErrEmptyImport`, `Result{Format, Collections, Folders, Requests, CreatedIDs, Issues}`; normalization: default names, method uppercased/`GET`, kind validation, enabled-only headers/params with first-wins duplicate warnings. Storage linkage (declared scope): migration v5 in `internal/storage/sqlite/migrate.go`; `internal/storage/sqlite/collection/repository.go` persists `headers`/`params` JSON (`encodeNV`/`decodeNV`, Save/Get/List) with Save\* bodies extracted over an `execer` interface; new `batch.go` `Repository.ImportBatch` writes collections/folders/requests in one `sqlite.Tx`. Verification: `go build ./...` pass; `go test ./internal/importer/... ./internal/services/importer/... ./internal/storage/sqlite/...` pass (adapter fixtures, service unit fakes + SQLite integration incl. conflict rename and rollback); `go vet` on touched packages pass. Follow-ups (out of scope): wire into `app.Services` (P0-APP-BOOTSTRAP), environment/variable + auth import (currently reported as issues), OpenAPI/native/curl importers, `docs/features/import-export.md` update; pre-existing root `main_test.go` compile failure (`undefined: lo`) untouched.
 
 ## Activity Log (append-only)
 
@@ -339,4 +351,35 @@ Add new entries at the bottom. Format: `- YYYY-MM-DDTHH:MM:SSZ [agent] TASK-ID: 
 - 2026-11-14T02:48:00Z [kilo] P0-STATE-SEPARATION: Added app/gui/transient state scaffolding in `internal/state/**`; targeted builds passed, review (screen migration pending).
 - 2026-11-14T03:29:30Z [mimo] P6-IMPORTERS: Implemented Postman/Insomnia importers, import service (detect→parse→normalize→conflict-resolve→atomic persist), migration v5 `requests.headers`/`params` + `ImportBatch`; `go build ./...`, targeted `go test`, `go vet` pass; review.
 - 2026-11-14T03:34:54Z [mimo] P6-IMPORTERS: Docs follow-up — added "Implemented (P6-IMPORTERS)" and remaining-work sections to `docs/features/import-export.md` (doc-only; no code changes).
-- 2026-11-14T03:37:00Z [mimo] UI-TITLEBAR: Claimed custom window title bar task (user dislikes native title bar); approach: hide native bar, draw custom one in `internal/screens/titlebar.go`.
+- 2026-11-16T17:11:00Z [agent] UI-REQUEST-SCRIPT: Added post-response scripting tab with an isolated goja runtime, inline syntax highlighting, and automatic execution on response arrival; `go vet ./internal/...` clean, `go test ./internal/screens -run Script` passed.
+- 2026-11-16T17:11:00Z [agent] UI-REQUEST-SCRIPT: Landed in commit `4712190` (`feat: add response history, environment switcher, and UI polish`), whose message does not mention scripting. Intended split, per `commit.md`:
+
+  ```
+  feat(script): run post-response JavaScript with req, res, and env access
+
+  Requests needed a way to inspect a response and feed values back into
+  variables without leaving the app. The Script tab provides an inline
+  editor whose text is colored in place, and runs the script by itself
+  whenever a response arrives, so assertions and token extraction happen
+  without an extra step.
+
+  Scripts run in an isolated goja runtime with a 2s interrupt and no
+  network or filesystem access. A dedicated goroutine owns the run queue
+  so a slow script never stalls the UI, and a per-request generation
+  counter drops results from superseded sends.
+
+  Refs: post-response scripting
+  ```
+
+  The persistence half was intended as its own commit:
+
+  ```
+  feat(history): persist the complete response payload
+
+  Only the status, headers and body were stored, so the response ID,
+  request ID, duration and effective URL were lost on reload and the
+  stored record could not reproduce the original result.
+
+  Duration is stored in nanoseconds rather than reusing the entry's
+  duration_ms, since a sub-millisecond round-trip truncated to zero.
+  ```
