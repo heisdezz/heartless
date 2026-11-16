@@ -152,6 +152,7 @@ archive_name="$SLUG-$version-linux-$ARCH.tar.gz"
 deb_name="${SLUG}_${version}_${ARCH}.deb"
 archive_url="$(asset_url "$archive_name")"
 deb_url="$(asset_url "$deb_name")"
+installer_url="$(asset_url "install.sh")"
 
 # --- pick how to install ----------------------------------------------------
 
@@ -221,6 +222,22 @@ fetch() {
   curl -fsSL --retry 3 --proto '=https' --tlsv1.2 -o "$out" "$url"
 }
 
+# link_into_path reports, or fixes, whether ~/.local/bin is on PATH.
+link_into_path() {
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) note "Add ~/.local/bin to PATH to run $SLUG from a shell" ;;
+  esac
+}
+
+# report_run says how to start the app from the command installed at link.
+report_run() {
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) note "Run it as: $SLUG" ;;
+    *) note "Run it as: $1" ;;
+  esac
+}
+
 install_deb() {
   step "Installing the Debian package"
   fetch "$deb_url" "$workdir/$deb_name" "$deb_name"
@@ -240,20 +257,21 @@ install_deb() {
     run as_root dpkg -i "$workdir/$deb_name"
   fi
 
-  printf '\nInstalled %s %s\n' "$APP_NAME" "$version"
-  note "Run it as: $SLUG"
-}
+  	printf '\nInstalled %s %s\n' "$APP_NAME" "$version"
+  	note "Run it as: $SLUG (or from the applications menu)"
+  }
 
 install_archive() {
   step "Installing into ~/.local"
-  fetch "$archive_url" "$workdir/$archive_name" "$archive_name"
 
-  # The archive ships the release's own install.sh, which lays the app out in
-  # ~/.local, links its commands into ~/.local/bin and registers the desktop
-  # entry.
-  tar -xzf "$workdir/$archive_name" -C "$workdir"
+  # install.sh is published beside the archive rather than inside it: the
+  # tarball holds only the app and its desktop files. The script lays the app
+  # out in ~/.local, links its commands into ~/.local/bin and registers the
+  # desktop entry.
+  [ -n "$installer_url" ] || die "release $tag has no install.sh"
+  fetch "$installer_url" "$workdir/install.sh" "install.sh"
+  fetch "$archive_url" "$workdir/$archive_name" "$archive_name"
   installer="$workdir/install.sh"
-  [ -f "$installer" ] || die "$archive_name has no install.sh"
 
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '  would run: sh %s %s\n' "$installer" "$workdir/$archive_name"
@@ -261,12 +279,26 @@ install_archive() {
     sh "$installer" "$workdir/$archive_name" </dev/null
   fi
 
-  printf '\nInstalled %s %s\n' "$APP_NAME" "$version"
-  note "Run it as: $SLUG (installed into ~/.local)"
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) note "Add ~/.local/bin to PATH to run it from a shell" ;;
-  esac
+	printf '\nInstalled %s %s\n' "$APP_NAME" "$version"
+	link_into_path
+
+	# The release's install.sh registers the app and its menu entry but, as
+	# built today, links no command. Add one so the app runs by name.
+	app_bin="$HOME/.local/$SLUG.app/$SLUG"
+	link="$HOME/.local/bin/$SLUG"
+	if [ -e "$link" ] || [ -L "$link" ]; then
+		if [ "$(readlink "$link" 2>/dev/null)" != "$app_bin" ]; then
+			note "Leaving $link alone: it is not $APP_NAME's"
+			report_run "$link"
+			return
+		fi
+	elif [ "$DRY_RUN" -eq 1 ]; then
+		printf '  would link: %s -> %s\n' "$link" "$app_bin"
+	else
+		mkdir -p "$HOME/.local/bin"
+		ln -sf "$app_bin" "$link"
+	fi
+	report_run "$link"
 }
 
 if [ "$METHOD" = "deb" ]; then
