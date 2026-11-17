@@ -252,12 +252,25 @@ func (s *shellState) setActiveEnvironment(ctx context.Context, services *app.Ser
 	}
 }
 
+// setActiveWorkspace applies id to the shell and remembers it for the next
+// launch. Callers that switch workspaces also reload the workspace's data.
+func (s *shellState) setActiveWorkspace(ctx context.Context, services *app.Services, id string) {
+	s.workspaceID = id
+	if services == nil || services.Settings == nil {
+		return
+	}
+	if err := services.Settings.SetActiveWorkspaceID(ctx, id); err != nil {
+		s.err = err.Error()
+	}
+}
+
 // selectWorkspace makes id the active workspace and restores its persisted active environment.
 func (s *shellState) selectWorkspace(id string, services *app.Services) {
 	if id == "" {
 		return
 	}
-	s.workspaceID = id
+	ctx := context.Background()
+	s.setActiveWorkspace(ctx, services, id)
 	s.environmentID = ""
 	s.selectedRequestID = ""
 	s.renameRequestID = ""
@@ -266,7 +279,6 @@ func (s *shellState) selectWorkspace(id string, services *app.Services) {
 	s.requests = nil
 	s.environments = nil
 	s.variables = nil
-	ctx := context.Background()
 	if err := s.reload(ctx, services); err != nil {
 		s.err = err.Error()
 	}
@@ -279,8 +291,23 @@ func (s *shellState) load(ctx context.Context, services *app.Services) {
 	}
 	s.loaded = true
 	s.err = ""
+	// A fresh shell has no selection: use the one saved on the previous launch.
+	// A preset ID (in tests) is left alone.
+	if s.workspaceID == "" && services.Settings != nil {
+		active, err := services.Settings.GetActiveWorkspaceID(ctx)
+		if err != nil {
+			s.err = err.Error()
+		} else {
+			s.workspaceID = active
+		}
+	}
 	if err := s.reload(ctx, services); err != nil {
 		s.err = err.Error()
+	}
+	// reload replaced an ID that no longer exists with a valid one; persist the
+	// effective selection so the stale ID does not come back on the next launch.
+	if s.workspaceID != "" {
+		s.setActiveWorkspace(ctx, services, s.workspaceID)
 	}
 }
 

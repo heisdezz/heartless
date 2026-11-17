@@ -210,6 +210,13 @@ ALTER TABLE execution_history ADD COLUMN effective_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE requests ADD COLUMN script TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		version: 12,
+		name:    "active_workspace",
+		up: `
+ALTER TABLE app_settings ADD COLUMN active_workspace_id TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.

@@ -98,7 +98,7 @@ func createWorkspaceModal(c *ui.Context, st *shellState, services *app.Services)
 			if err := services.Workspaces.Save(context.Background(), ws); err != nil {
 				st.err = err.Error()
 			} else {
-				st.workspaceID = ws.ID
+				st.setActiveWorkspace(context.Background(), services, ws.ID)
 				st.environmentID = ""
 				st.err = ""
 				if err := st.reload(context.Background(), services); err != nil {
