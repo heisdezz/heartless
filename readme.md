@@ -9,6 +9,8 @@ Heartless is a rebuild of the [Yaak](https://yaak.app) API client using Go.
 Requests, collections, environments and responses live in a local SQLite
 database, and the window draws itself.
 
+![Heartless main window with the collection sidebar, request editor and response](public/screenshot.png)
+
 ## Status
 
 Early development. The HTTP core, storage layer and request editor work end to
@@ -29,6 +31,8 @@ end; the remaining phases in [`docs/PLAN.md`](docs/PLAN.md) are in progress. See
 - Authentication: bearer token, basic, and API key. The menu lists the other
   schemes (AWS, Digest, JWT, OAuth 1.0/2.0, NTLM) for when they land, but only
   the first three are applied to the request today.
+
+![Request editor with URL variables, parameter rows and the response pane](public/request.png)
 
 **Post-response scripting**
 
@@ -56,6 +60,8 @@ happen on their own goroutine, so a slow script never blocks the interface.
 Variables a script changes are shown as `old → new` and written only when you
 save them.
 
+![Post-response script tab with console output beside the response](public/scripting.png)
+
 **Environments and variables**
 
 - Workspaces, environments and variables stored in SQLite.
@@ -69,6 +75,8 @@ save them.
 - Collections, nested folders and saved requests in a sidebar tree.
 - Rename and delete requests, and import Postman and Insomnia collections.
 - Double-click behaviour is configurable in settings.
+
+![Nested collection tree after importing a Postman collection](public/importing.png)
 
 **History**
 
@@ -172,6 +180,7 @@ internal/config/         settings and theme configuration
 internal/events/         in-process event bus
 internal/logging/        structured logging with redaction
 migrations/              initial schema
+public/                  screenshots used in this readme
 scripts/                 release tooling and the Linux installer
 ```
 
