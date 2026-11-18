@@ -1,6 +1,10 @@
 package request
 
-import "time"
+import (
+	"net/url"
+	"strings"
+	"time"
+)
 
 // HTTPMethod represents a supported HTTP method.
 type HTTPMethod string
@@ -58,6 +62,31 @@ type HTTPRequest struct {
 	Body     string            `json:"body,omitempty"`
 	BodyType BodyType          `json:"body_type,omitempty"`
 	Settings HTTPSettings      `json:"settings,omitempty"`
+}
+
+// ApplyPathParams substitutes parameter names written as ":name" into the URL,
+// replacing every occurrence of the token, with each value escaped so it stays
+// a single path segment. It returns the substituted URL and the parameters
+// left over, which are sent as the query string. A ":name" parameter whose
+// token appears nowhere in the URL is dropped rather than appended to the
+// query, where the colon would be percent-encoded.
+func ApplyPathParams(rawURL string, params map[string]string) (string, map[string]string) {
+	query := make(map[string]string, len(params))
+	sub, replaced := rawURL, false
+	for k, v := range params {
+		if !strings.HasPrefix(k, ":") {
+			query[k] = v
+			continue
+		}
+		if strings.Contains(sub, k) {
+			sub = strings.ReplaceAll(sub, k, url.PathEscape(v))
+			replaced = true
+		}
+	}
+	if !replaced {
+		return rawURL, query
+	}
+	return sub, query
 }
 
 // NewHTTP creates a saved HTTP request definition.

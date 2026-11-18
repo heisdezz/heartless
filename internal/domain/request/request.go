@@ -29,8 +29,11 @@ type Request struct {
 	URL          string            `json:"url,omitempty" db:"url"`
 	Headers      map[string]string `json:"headers,omitempty" db:"-"`
 	Params       map[string]string `json:"params,omitempty" db:"-"`
-	Body         string            `json:"body,omitempty" db:"body"`
-	BodyType     string            `json:"body_type,omitempty" db:"body_type"`
+	// Form holds the body fields of the form and multipart body types; it is
+	// encoded into the request body at execution time.
+	Form     map[string]string `json:"form,omitempty" db:"-"`
+	Body     string            `json:"body,omitempty" db:"body"`
+	BodyType string            `json:"body_type,omitempty" db:"body_type"`
 	// Script is the JavaScript run after the response arrives.
 	Script string `json:"script,omitempty" db:"script"`
 	// Auth is the request's authentication, applied at execution time.

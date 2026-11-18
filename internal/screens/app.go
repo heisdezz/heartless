@@ -156,8 +156,17 @@ type shellState struct {
 	themeConfig     *theme.Config
 	// themeSaved is the settings themeConfig was built from, so a saved change
 	// is rebuilt once.
-	themeSaved  config.ApplicationSettings
+	themeSaved config.ApplicationSettings
+
 	searchQuery string
+
+	// Workspace settings page state: which section shows and the auth draft,
+	// seeded from the active workspace when the page opens.
+	wsSettingsSection int
+	wsSettingsFor     string
+	wsAuth            domainreq.Auth
+	wsAutoInherit     bool
+	wsSettingsSaved   bool
 
 	// requestStates keeps each open request's editor and response, keyed by
 	// request ID. They are isolated from one another.
@@ -932,6 +941,9 @@ func mainContent(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.
 			case r.Match("/settings"):
 				r.Title("Settings")
 				settingsView(c, tk, st, services)
+			case r.Match("/workspace-settings"):
+				r.Title("Workspace Settings")
+				workspaceSettingsView(c, tk, st, services)
 			case r.Match("/environments"):
 				r.Title("Environments")
 				environmentsView(c, tk, st, services)
@@ -992,32 +1004,38 @@ func (s *shellState) selectedRequest() (domainreq.Request, bool) {
 func variablesView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
 	ui.Column(c).Fill().Children(func() {
 		pageHeader(c, tk, "Global variables", "Available to every environment in this workspace.")
-		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
-			ui.Column(c).Padding(24, 24).Gap(8).Children(func() {
-				if st.workspaceID == "" {
-					emptyState(c, tk, lucide.Pencil(), "No workspace selected", "Select a workspace first.")
-					return
+		variablesBody(c, tk, st, services)
+	})
+}
+
+// variablesBody is the variables list without the page header, so the workspace
+// settings page can show it as one of its sections.
+func variablesBody(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
+	ui.Scroll(c).Grow(1).Basis(0).Children(func() {
+		ui.Column(c).Padding(24, 24).Gap(8).Children(func() {
+			if st.workspaceID == "" {
+				emptyState(c, tk, lucide.Pencil(), "No workspace selected", "Select a workspace first.")
+				return
+			}
+			if len(st.variables) == 0 {
+				ui.Text(c, "No workspace variables yet.").TextColor(tk.TextSecondary)
+			}
+			for _, v := range st.variables {
+				if v.EnvironmentID != "" {
+					continue
 				}
-				if len(st.variables) == 0 {
-					ui.Text(c, "No workspace variables yet.").TextColor(tk.TextSecondary)
+				label := v.Name
+				if v.Value != "" {
+					label += " = " + v.Value
 				}
-				for _, v := range st.variables {
-					if v.EnvironmentID != "" {
-						continue
-					}
-					label := v.Name
-					if v.Value != "" {
-						label += " = " + v.Value
-					}
-					ui.Text(c, label)
+				ui.Text(c, label)
+			}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(12, 0).Children(func() {
+				field.Input(c, &st.newVarName, field.InputProps{Placeholder: "Name"}).Grow(3).Basis(0)
+				field.Input(c, &st.newVarValue, field.InputProps{Placeholder: "Value"}).Grow(5).Basis(0)
+				if action.Button(c, "Create", action.ButtonProps{Variant: action.Primary}).Clicked() {
+					st.createVariable(services)
 				}
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(12, 0).Children(func() {
-					field.Input(c, &st.newVarName, field.InputProps{Placeholder: "Name"}).Grow(3).Basis(0)
-					field.Input(c, &st.newVarValue, field.InputProps{Placeholder: "Value"}).Grow(5).Basis(0)
-					if action.Button(c, "Create", action.ButtonProps{Variant: action.Primary}).Clicked() {
-						st.createVariable(services)
-					}
-				})
 			})
 		})
 	})

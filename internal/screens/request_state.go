@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +41,7 @@ func (s *shellState) requestStateFor(req domainreq.Request) *requestState {
 			Script:   req.Script,
 			Params:   paramsToRows(req.Params),
 			Headers:  paramsToRows(req.Headers),
+			Form:     paramsToRows(req.Form),
 			Auth:     req.Auth,
 		}
 		if rs.Method == "" {
@@ -170,15 +173,17 @@ func (rs *requestState) buildDomainRequest(req domainreq.Request) *domainreq.Req
 	out.Auth = rs.Auth
 	out.Params = rowsToParams(rs.Params)
 	out.Headers = rowsToParams(rs.Headers)
+	out.Form = rowsToParams(rs.Form)
 	applyBodyType(&out)
 	domainreq.NormalizeHTTP(&out)
 	return &out
 }
 
 // applyBodyType turns the editor's body type into the body and headers actually
-// sent: form and multipart rows are encoded, GraphQL wraps its variables, JSON
-// objects written as JavaScript get converted to strict JSON, and the matching
-// Content-Type is set unless the user already set one.
+// sent: the form rows are encoded for the form and multipart types, GraphQL
+// wraps its variables, JSON objects written as JavaScript get converted to
+// strict JSON, and the matching Content-Type is set unless the user already set
+// one. Query params are never folded into the body.
 func applyBodyType(r *domainreq.Request) {
 	switch r.BodyType {
 	case string(domainreq.BodyNone):
@@ -191,10 +196,15 @@ func applyBodyType(r *domainreq.Request) {
 	case string(domainreq.BodyGraphQL):
 		setContentType(r, "application/json")
 	case string(domainreq.BodyForm):
-		r.Body = encodeForm(r.Params)
+		r.Body = encodeForm(r.Form)
 		setContentType(r, "application/x-www-form-urlencoded")
 	case string(domainreq.BodyMultipart):
-		setContentType(r, "multipart/form-data")
+		if body, boundary := encodeMultipart(r.Form); boundary != "" {
+			r.Body = body
+			setContentType(r, "multipart/form-data; boundary="+boundary)
+		} else {
+			setContentType(r, "multipart/form-data")
+		}
 	case string(domainreq.BodyBinary):
 		// Body already holds the raw text; let the user's content type stand.
 	}
@@ -213,16 +223,37 @@ func setContentType(r *domainreq.Request, ct string) {
 	r.Headers["Content-Type"] = ct
 }
 
-// encodeForm builds a query-string body from the enabled rows.
-func encodeForm(params map[string]string) string {
-	if len(params) == 0 {
+// encodeForm builds a urlencoded body from the form fields.
+func encodeForm(fields map[string]string) string {
+	if len(fields) == 0 {
 		return ""
 	}
 	v := url.Values{}
-	for k, val := range params {
+	for k, val := range fields {
 		v.Set(k, val)
 	}
 	return v.Encode()
+}
+
+// encodeMultipart builds a multipart/form-data body from the form fields. Keys
+// are sorted so the same fields always produce the same body. The second return
+// is the boundary, empty when there are no fields to encode.
+func encodeMultipart(fields map[string]string) (string, string) {
+	if len(fields) == 0 {
+		return "", ""
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, k := range keys {
+		_ = w.WriteField(k, fields[k])
+	}
+	_ = w.Close()
+	return buf.String(), w.Boundary()
 }
 
 // responseOf returns the response currently shown for the request, under the
@@ -254,6 +285,9 @@ func (s *shellState) send(services *app.Services, req domainreq.Request, invalid
 	ctx, cancel := context.WithCancel(context.Background())
 	rs.cancel = cancel
 	domain := rs.buildDomainRequest(req)
+	// Requests set to Inherit, and with auto-inherit on those without their own
+	// auth, take the workspace's default credentials.
+	domain.Auth = s.resolveAuthInheritance(domain.Auth)
 	// Resolve {{var}} against this request's active environment and workspace.
 	rs.sentBody = domain.Body
 	exec := services.ExecutorFor(s.resolverVariables())
@@ -336,8 +370,9 @@ func (s *shellState) snapshot(reqID string) (requestState, bool) {
 var placeholderRe = regexp.MustCompile(`\{\{(\w+)\}\}`)
 
 // previewURL resolves {{var}} placeholders using the active environment and
-// workspace variables, for display under the URL field.
-func (s *shellState) previewURL(raw string) string {
+// workspace variables, then fills path parameters such as ":id", for display
+// under the URL field.
+func (s *shellState) previewURL(raw string, params map[string]string) string {
 	repl := func(m string) string {
 		name := strings.TrimSpace(m[2 : len(m)-2])
 		for _, v := range s.activeVariables() {
@@ -347,7 +382,9 @@ func (s *shellState) previewURL(raw string) string {
 		}
 		return m
 	}
-	return placeholderRe.ReplaceAllStringFunc(raw, repl)
+	raw = placeholderRe.ReplaceAllStringFunc(raw, repl)
+	sub, _ := domainreq.ApplyPathParams(raw, params)
+	return sub
 }
 
 // activeVariables returns environment variables scoped to the active

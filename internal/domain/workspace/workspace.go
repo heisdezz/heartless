@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"heartless/internal/domain/id"
+	domainreq "heartless/internal/domain/request"
 	"time"
 )
 
@@ -28,7 +29,11 @@ type Workspace struct {
 	DefaultHeaders map[string]string `json:"default_headers,omitempty" db:"default_headers"`
 
 	// DefaultAuth is the default authentication applied to all requests in this workspace.
-	DefaultAuth Auth `json:"default_auth,omitempty" db:"default_auth"`
+	DefaultAuth domainreq.Auth `json:"default_auth,omitempty" db:"default_auth"`
+
+	// AutoInheritAuth applies DefaultAuth to requests that carry no auth of their
+	// own, instead of leaving them unauthenticated.
+	AutoInheritAuth bool `json:"auto_inherit_auth,omitempty" db:"auto_inherit_auth"`
 
 	// DefaultTLSInsecure skips TLS verification for all requests in this workspace.
 	DefaultTLSInsecure bool `json:"default_tls_insecure,omitempty" db:"default_tls_insecure"`
@@ -52,7 +57,7 @@ func NewWorkspace(name string) *Workspace {
 		CreatedAt:          time.Now().UTC(),
 		UpdatedAt:          time.Now().UTC(),
 		DefaultHeaders:     map[string]string{},
-		DefaultAuth:        Auth{},
+		DefaultAuth:        domainreq.Auth{},
 		DefaultTLSInsecure: false,
 	}
 }
@@ -64,26 +69,6 @@ func (w *Workspace) IsEmpty() bool {
 
 func generateID() string {
 	return id.New("ws")
-}
-
-// Auth holds a workspace's default authentication settings.
-type Auth struct {
-	// Type identifies how a request authenticates.
-	Type string `json:"type,omitempty" db:"type"`
-
-	// Username and Password are used by Basic and Digest auth.
-	Username string `json:"username,omitempty" db:"username"`
-	Password string `json:"password,omitempty" db:"password"`
-
-	// Key, Header and Prefix are used by API key auth.
-	Key    string `json:"key,omitempty" db:"key"`
-	Header string `json:"header,omitempty" db:"header"`
-	Prefix string `json:"prefix,omitempty" db:"prefix"`
-
-	// Oauth1 and OAuth2 settings.
-	OAuth1Token string `json:"oauth1_token,omitempty" db:"oauth1_token"`
-	OAuth2Token string `json:"oauth2_token,omitempty" db:"oauth2_token"`
-	OAuth2Scope string `json:"oauth2_scope,omitempty" db:"oauth2_scope"`
 }
 
 // DefaultHeaders is a map of header name -> value that are automatically

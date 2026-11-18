@@ -126,6 +126,9 @@ func (c *Client) clientFor(settings domainreq.HTTPSettings) *nethttp.Client {
 }
 
 func buildURL(raw string, params map[string]string) (string, error) {
+	// Params named ":id" are path parameters: they fill the matching token in
+	// the URL instead of becoming a query string entry.
+	raw, params = domainreq.ApplyPathParams(raw, params)
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", err

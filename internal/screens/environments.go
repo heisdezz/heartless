@@ -20,27 +20,33 @@ import (
 func environmentsView(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
 	ui.Column(c).Fill().Children(func() {
 		pageHeader(c, tk, "Environments", "Manage the variables each environment sends with your requests.")
-		ui.Scroll(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
-			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.Start).Padding(24, 24).Gap(10).Children(func() {
-				if _, ok := st.currentWorkspace(); !ok {
-					emptyState(c, tk, lucide.Database(), "No workspace selected", "Select or create a workspace to manage environments.")
-					return
-				}
+		environmentsBody(c, tk, st, services)
+	})
+}
 
-				envs := st.workspaceEnvironments()
-				if len(envs) == 0 {
-					emptyState(c, tk, lucide.Database(), "No environments yet", "Create an environment to start defining variables.")
-				}
-				for i := range envs {
-					environmentCard(c, tk, st, services, &envs[i])
-				}
+// environmentsBody is the environments list without the page header, so the
+// workspace settings page can show it as one of its sections.
+func environmentsBody(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Services) {
+	ui.Scroll(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.Start).Padding(24, 24).Gap(10).Children(func() {
+			if _, ok := st.currentWorkspace(); !ok {
+				emptyState(c, tk, lucide.Database(), "No workspace selected", "Select or create a workspace to manage environments.")
+				return
+			}
 
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(4, 0).Children(func() {
-					field.Input(c, &st.newEnvName, field.InputProps{Placeholder: "New environment name"}).Grow(1).Basis(0)
-					if action.Button(c, "Create", action.ButtonProps{Variant: action.Primary}).Clicked() {
-						st.createEnvironment(services)
-					}
-				})
+			envs := st.workspaceEnvironments()
+			if len(envs) == 0 {
+				emptyState(c, tk, lucide.Database(), "No environments yet", "Create an environment to start defining variables.")
+			}
+			for i := range envs {
+				environmentCard(c, tk, st, services, &envs[i])
+			}
+
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(4, 0).Children(func() {
+				field.Input(c, &st.newEnvName, field.InputProps{Placeholder: "New environment name"}).Grow(1).Basis(0)
+				if action.Button(c, "Create", action.ButtonProps{Variant: action.Primary}).Clicked() {
+					st.createEnvironment(services)
+				}
 			})
 		})
 	})

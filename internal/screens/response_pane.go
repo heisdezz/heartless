@@ -36,13 +36,23 @@ func (s *shellState) responseView(reqID string) (resp *responseSnapshot, running
 		if res.ContentType != "" {
 			timeline = append(timeline, "Content-Type: "+res.ContentType)
 		}
+		// The Headers tab lists the URL the request was actually sent to, after
+		// redirects, alongside the response headers. Cookies keep reading the
+		// real headers so the injected URL never masks a Set-Cookie.
+		headers := cloneHeaders(res.Headers)
+		if res.EffectiveURL != "" {
+			if headers == nil {
+				headers = map[string]string{}
+			}
+			headers["URL"] = res.EffectiveURL
+		}
 		resp = &responseSnapshot{
 			Status:      statusLine(res),
 			Code:        res.StatusCode,
 			Duration:    humanDuration(rs.response.Duration),
 			Size:        humanBytes(res.Size),
 			Body:        string(res.Body),
-			Headers:     cloneHeaders(res.Headers),
+			Headers:     headers,
 			Cookies:     cookiesFromHeaders(res.Headers),
 			Timeline:    timeline,
 			ContentType: res.ContentType,

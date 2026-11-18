@@ -47,14 +47,24 @@ func TestPlaceholderResolution(t *testing.T) {
 		environmentID: "env-dev",
 		variables:     []domainvar.Variable{wsVar, envVar},
 	}
-	if got := st.previewURL("{{baseUrl}}/users"); got != "https://dev.test/users" {
+	if got := st.previewURL("{{baseUrl}}/users", nil); got != "https://dev.test/users" {
 		t.Fatalf("preview = %q", got)
 	}
-	if got := st.previewURL("{{token}}"); got != "workspace-token" {
+	if got := st.previewURL("{{token}}", nil); got != "workspace-token" {
 		t.Fatalf("workspace preview = %q", got)
 	}
-	if got := st.previewURL("{{missing}}/x"); got != "{{missing}}/x" {
+	if got := st.previewURL("{{missing}}/x", nil); got != "{{missing}}/x" {
 		t.Fatalf("unknown placeholder = %q", got)
+	}
+
+	// Params named ":id" fill the matching token in the path instead of
+	// becoming a query string entry; others stay query parameters.
+	p := map[string]string{":id": "42", "page": "2"}
+	if got := st.previewURL("https://api.test/contacts/:id", p); got != "https://api.test/contacts/42" {
+		t.Fatalf("path param preview = %q", got)
+	}
+	if got := st.previewURL("https://api.test/contacts", p); got != "https://api.test/contacts" {
+		t.Fatalf("query preview = %q, want path substitution only", got)
 	}
 }
 

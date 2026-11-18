@@ -54,8 +54,15 @@ func authShowsToken(t domainreq.AuthType) bool {
 }
 
 // authToolbar renders the auth header: the scheme label beside the type menu,
-// with the per-scheme actions at the far end.
-func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+// with the per-scheme actions at the far end. The auth may be a request's or a
+// workspace's default.
+func authToolbar(c *ui.Context, tk *theme.Tokens, a *domainreq.Auth) {
+	authToolbarWith(c, tk, a, true)
+}
+
+// authToolbarWith renders the auth header; inherit is dropped from the menu at
+// scopes with no parent, as the workspace's default auth has none.
+func authToolbarWith(c *ui.Context, tk *theme.Tokens, a *domainreq.Auth, inherit bool) {
 	bar := ui.Row(c)
 	open := ui.Local(bar, "authMenu", func() bool { return false })
 
@@ -64,11 +71,11 @@ func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 		ui.Text(c, "Auth").FontSize(textSize(c, 13)).FontWeight(600).TextColor(tk.Text).Shrink(0)
 
 		ui.Box(c).Shrink(0).Children(func() {
-			chosen := overlay.DropdownMenu(c, open, overlay.DropdownMenuProps{Items: authMenuItems(rs.Auth.Type)}, func(t ui.Element) {
-				authTrigger(t, c, tk, rs)
+			chosen := overlay.DropdownMenu(c, open, overlay.DropdownMenuProps{Items: authMenuItemsWith(a.Type, inherit)}, func(t ui.Element) {
+				authTrigger(t, c, tk, a)
 			})
 			if chosen != "" {
-				rs.Auth.Type = domainreq.AuthType(chosen)
+				a.Type = domainreq.AuthType(chosen)
 			}
 		})
 
@@ -82,15 +89,15 @@ func authToolbar(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 
 // authTrigger styles the type menu's trigger as a compact select: the scheme,
 // a check when credentials are set, and a chevron.
-func authTrigger(t ui.Element, c *ui.Context, tk *theme.Tokens, rs *requestState) {
+func authTrigger(t ui.Element, c *ui.Context, tk *theme.Tokens, a *domainreq.Auth) {
 	t.Height(28).PaddingX(10).Gap(6).Radius(tk.BorderRadius).AlignItems(ui.Center).
 		Background(tk.FillQuaternary).TextColor(tk.Text).Cursor(ui.CursorPointer)
 	if t.Hovered() {
 		t.Background(tk.FillTertiary)
 	}
 	t.Children(func() {
-		ui.Text(c, authShortLabel(rs.Auth.Type)).FontSize(textSize(c, 13))
-		if authApplied(rs.Auth) {
+		ui.Text(c, authShortLabel(a.Type)).FontSize(textSize(c, 13))
+		if authApplied(*a) {
 			ui.Icon(c, lucide.Asterisk()).FontSize(textSize(c, 11)).TextColor(tk.Success)
 		}
 		ui.Icon(c, lucide.ChevronDown()).FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
@@ -130,10 +137,19 @@ func authApplied(a domainreq.Auth) bool {
 
 // authMenuItems builds the auth menu rows, marking the current type with a check.
 func authMenuItems(current domainreq.AuthType) []overlay.MenuItem {
+	return authMenuItemsWith(current, true)
+}
+
+// authMenuItemsWith builds the menu rows; inherit is omitted at scopes that have
+// no parent to inherit from, as the workspace's default auth has none.
+func authMenuItemsWith(current domainreq.AuthType, inherit bool) []overlay.MenuItem {
 	var items []overlay.MenuItem
 	for i, o := range authOptions {
+		if o.typ == domainreq.AuthInherit && !inherit {
+			continue
+		}
 		// A divider separates the schemes from Inherit/No Auth.
-		if o.typ == domainreq.AuthInherit && i > 0 {
+		if i > 0 && ((o.typ == domainreq.AuthInherit) || (!inherit && o.typ == domainreq.AuthNone)) {
 			items = append(items, overlay.MenuItem{Divider: true})
 		}
 		it := overlay.MenuItem{Key: string(o.typ), Label: o.label}
@@ -149,24 +165,24 @@ func authMenuItems(current domainreq.AuthType) []overlay.MenuItem {
 
 // authFields renders the credential inputs for the current auth type, one
 // labelled field per row with a hint under the group.
-func authFields(c *ui.Context, tk *theme.Tokens, rs *requestState) {
+func authFields(c *ui.Context, tk *theme.Tokens, a *domainreq.Auth) {
 	ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Gap(14).Children(func() {
-		switch rs.Auth.Type {
+		switch a.Type {
 		case domainreq.AuthBearer, domainreq.AuthJWT:
-			authTextField(c, tk, "Token", &rs.Auth.Token, "{{token}} or a token")
+			authTextField(c, tk, "Token", &a.Token, "{{token}} or a token")
 			authHint(c, tk, "Sent as Authorization: Bearer <token>.")
 		case domainreq.AuthBasic, domainreq.AuthDigest, domainreq.AuthNTLM:
-			authTextField(c, tk, "Username", &rs.Auth.Username, "{{username}}")
-			authTextField(c, tk, "Password", &rs.Auth.Password, "{{password}}")
+			authTextField(c, tk, "Username", &a.Username, "{{username}}")
+			authTextField(c, tk, "Password", &a.Password, "{{password}}")
 		case domainreq.AuthAPIKey:
-			authTextField(c, tk, "Key", &rs.Auth.Key, "{{apiKey}}")
-			authTextField(c, tk, "Header", &rs.Auth.Header, "X-API-Key")
+			authTextField(c, tk, "Key", &a.Key, "{{apiKey}}")
+			authTextField(c, tk, "Header", &a.Header, "X-API-Key")
 		case domainreq.AuthNone:
 			authNote(c, tk, "No authentication is applied.")
 		case domainreq.AuthInherit, "":
 			authNote(c, tk, "Inherited from the collection or workspace.")
 		default:
-			authNote(c, tk, authLabel(rs.Auth.Type)+" is not supported yet.")
+			authNote(c, tk, authLabel(a.Type)+" is not supported yet.")
 		}
 	})
 }

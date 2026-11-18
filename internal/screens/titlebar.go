@@ -32,10 +32,10 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 	h := max(bar.Height, TitleBarHeight)
 	ownControls := bar.Height == 0
 
-	// Workspace Settings (Cmd+;) opens the environment page.
+	// Workspace Settings (Cmd+;) opens the workspace settings page.
 	c.OnShortcut(ui.Cmd, ui.KeySemicolon, func() {
 		if st.workspaceID != "" {
-			st.router.Push("/environments")
+			st.router.Push("/workspace-settings")
 		}
 	})
 
@@ -119,7 +119,7 @@ func titleBar(c *ui.Context, tk *theme.Tokens, st *shellState, services *app.Ser
 		st.newWorkspaceName = ""
 		st.showCreateWorkspace = true
 	case chosen == "workspace-settings":
-		st.router.Push("/environments")
+		st.router.Push("/workspace-settings")
 	case chosen == "clear-history":
 		// TODO: clear send history once history is persisted.
 	default:

@@ -217,6 +217,20 @@ ALTER TABLE requests ADD COLUMN script TEXT NOT NULL DEFAULT '';
 ALTER TABLE app_settings ADD COLUMN active_workspace_id TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		version: 13,
+		name:    "workspace_auto_inherit_auth",
+		up: `
+ALTER TABLE workspaces ADD COLUMN auto_inherit_auth INTEGER NOT NULL DEFAULT 0;
+`,
+	},
+	{
+		version: 14,
+		name:    "request_form",
+		up: `
+ALTER TABLE requests ADD COLUMN form TEXT NOT NULL DEFAULT '{}';
+`,
+	},
 }
 
 // Migrate applies pending schema migrations in order.

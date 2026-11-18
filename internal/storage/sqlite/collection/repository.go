@@ -151,7 +151,7 @@ func (r *Repository) ListFolders(ctx context.Context, collectionID string) ([]*d
 }
 
 func (r *Repository) GetRequest(ctx context.Context, id string) (*request.Request, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, auth, sort_order, created_at, updated_at FROM requests WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx, `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, form, auth, sort_order, created_at, updated_at FROM requests WHERE id = ?`, id)
 	return scanRequest(row)
 }
 
@@ -177,6 +177,10 @@ func saveRequest(ctx context.Context, ex execer, req *request.Request) error {
 	if err != nil {
 		return fmt.Errorf("encode request params: %w", err)
 	}
+	form, err := encodeNV(req.Form)
+	if err != nil {
+		return fmt.Errorf("encode request form: %w", err)
+	}
 	auth := "{}"
 	if !req.Auth.IsZero() {
 		b, err := json.Marshal(req.Auth)
@@ -186,8 +190,8 @@ func saveRequest(ctx context.Context, ex execer, req *request.Request) error {
 		auth = string(b)
 	}
 	_, err = ex.ExecContext(ctx, `
-INSERT INTO requests (id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, auth, sort_order, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO requests (id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, form, auth, sort_order, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	workspace_id = excluded.workspace_id,
 	collection_id = excluded.collection_id,
@@ -202,10 +206,11 @@ ON CONFLICT(id) DO UPDATE SET
 	script = excluded.script,
 	headers = excluded.headers,
 	params = excluded.params,
+	form = excluded.form,
 	auth = excluded.auth,
 	sort_order = excluded.sort_order,
 	updated_at = excluded.updated_at
-`, req.ID, req.WorkspaceID, req.CollectionID, req.FolderID, req.Name, req.Description, string(req.Kind), req.Method, req.URL, req.Body, req.BodyType, req.Script, headers, params, auth, req.SortOrder, formatTime(req.CreatedAt), formatTime(req.UpdatedAt))
+`, req.ID, req.WorkspaceID, req.CollectionID, req.FolderID, req.Name, req.Description, string(req.Kind), req.Method, req.URL, req.Body, req.BodyType, req.Script, headers, params, form, auth, req.SortOrder, formatTime(req.CreatedAt), formatTime(req.UpdatedAt))
 	return err
 }
 
@@ -214,7 +219,7 @@ func (r *Repository) DeleteRequest(ctx context.Context, id string) error {
 }
 
 func (r *Repository) ListRequests(ctx context.Context, workspaceID, collectionID, folderID string) ([]*request.Request, error) {
-	query := `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, auth, sort_order, created_at, updated_at FROM requests WHERE 1=1`
+	query := `SELECT id, workspace_id, collection_id, folder_id, name, description, kind, method, url, body, body_type, script, headers, params, form, auth, sort_order, created_at, updated_at FROM requests WHERE 1=1`
 	args := []any{}
 	if workspaceID != "" {
 		query += ` AND workspace_id = ?`
@@ -295,9 +300,9 @@ func scanFolder(s scanner) (*domain.Folder, error) {
 
 func scanRequest(s scanner) (*request.Request, error) {
 	var req request.Request
-	var kind, headers, params, authJSON string
+	var kind, headers, params, form, authJSON string
 	var createdAt, updatedAt string
-	if err := s.Scan(&req.ID, &req.WorkspaceID, &req.CollectionID, &req.FolderID, &req.Name, &req.Description, &kind, &req.Method, &req.URL, &req.Body, &req.BodyType, &req.Script, &headers, &params, &authJSON, &req.SortOrder, &createdAt, &updatedAt); err != nil {
+	if err := s.Scan(&req.ID, &req.WorkspaceID, &req.CollectionID, &req.FolderID, &req.Name, &req.Description, &kind, &req.Method, &req.URL, &req.Body, &req.BodyType, &req.Script, &headers, &params, &form, &authJSON, &req.SortOrder, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRequestNotFound
 		}
@@ -313,6 +318,11 @@ func scanRequest(s scanner) (*request.Request, error) {
 		return nil, fmt.Errorf("request %s params: %w", req.ID, err)
 	}
 	req.Params = decoded
+	decoded, err = decodeNV(form)
+	if err != nil {
+		return nil, fmt.Errorf("request %s form: %w", req.ID, err)
+	}
+	req.Form = decoded
 	if authJSON != "" && authJSON != "{}" {
 		if err := json.Unmarshal([]byte(authJSON), &req.Auth); err != nil {
 			return nil, fmt.Errorf("request %s auth: %w", req.ID, err)

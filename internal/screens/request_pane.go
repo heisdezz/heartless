@@ -71,7 +71,7 @@ func requestEditor(c *ui.Context, tk *theme.Tokens, st *shellState, services *ap
 				ui.Box(c).AlignSelf(ui.Stretch).MinWidth(0).Clip().Children(func() {
 					variableHighlightText(c, tk, rs.URL, 11, st.knowsVariable)
 				})
-				ui.Text(c, "→ "+st.previewURL(rs.URL)).Font("monospace").FontSize(textSize(c, 11)).
+				ui.Text(c, "→ "+st.previewURL(rs.URL, rowsToParams(rs.Params))).Font("monospace").FontSize(textSize(c, 11)).
 					TextColor(tk.TextTertiary).SingleLine().MinWidth(0)
 			})
 		}
@@ -213,8 +213,8 @@ func jsonBodyEditor(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 // and the credential fields for the chosen type.
 func authEditor(c *ui.Context, tk *theme.Tokens, rs *requestState) {
 	ui.Column(c).AlignSelf(ui.Stretch).MinWidth(0).Gap(16).Children(func() {
-		authToolbar(c, tk, rs)
-		authFields(c, tk, rs)
+		authToolbar(c, tk, &rs.Auth)
+		authFields(c, tk, &rs.Auth)
 	})
 }
 
@@ -355,6 +355,7 @@ func (s *shellState) persistDraft(services *app.Services, reqID string, rs *requ
 	req.Auth = rs.Auth
 	req.Params = rowsToParams(rs.Params)
 	req.Headers = rowsToParams(rs.Headers)
+	req.Form = rowsToParams(rs.Form)
 	if err := services.Collections.SaveRequest(context.Background(), &req); err != nil {
 		s.err = err.Error()
 		return

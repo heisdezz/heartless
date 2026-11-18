@@ -37,6 +37,7 @@ func TestRequestHeadersParamsRoundTrip(t *testing.T) {
 	req.URL = "https://example.com/users"
 	req.Headers = map[string]string{"Accept": "application/json", "X-Trace": "abc"}
 	req.Params = map[string]string{"page": "1"}
+	req.Form = map[string]string{"user": "ada"}
 
 	if err := repo.SaveRequest(ctx, req); err != nil {
 		t.Fatalf("save request: %v", err)
@@ -52,18 +53,22 @@ func TestRequestHeadersParamsRoundTrip(t *testing.T) {
 	if got.Params["page"] != "1" {
 		t.Fatalf("params = %v", got.Params)
 	}
+	if got.Form["user"] != "ada" {
+		t.Fatalf("form = %v", got.Form)
+	}
 
 	list, err := repo.ListRequests(ctx, "ws-1", "", "")
 	if err != nil {
 		t.Fatalf("list requests: %v", err)
 	}
-	if len(list) != 1 || list[0].Headers["Accept"] != "application/json" {
+	if len(list) != 1 || list[0].Headers["Accept"] != "application/json" || list[0].Form["user"] != "ada" {
 		t.Fatalf("list = %+v", list)
 	}
 
 	// Empty maps must round-trip as empty maps, not nil.
 	req.Headers = nil
 	req.Params = nil
+	req.Form = nil
 	if err := repo.SaveRequest(ctx, req); err != nil {
 		t.Fatalf("save request: %v", err)
 	}
@@ -71,8 +76,8 @@ func TestRequestHeadersParamsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get request: %v", err)
 	}
-	if len(got.Headers) != 0 || len(got.Params) != 0 {
-		t.Fatalf("headers/params = %v/%v, want empty", got.Headers, got.Params)
+	if len(got.Headers) != 0 || len(got.Params) != 0 || len(got.Form) != 0 {
+		t.Fatalf("headers/params/form = %v/%v/%v, want empty", got.Headers, got.Params, got.Form)
 	}
 }
 
