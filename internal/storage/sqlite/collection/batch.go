@@ -22,10 +22,34 @@ func (r *Repository) ImportBatch(
 	folders []*domain.Folder,
 	requests []*request.Request,
 ) error {
+	return r.SyncBatch(ctx, collections, folders, requests, nil, nil)
+}
+
+// SyncBatch persists collections, folders, and requests and deletes removed
+// folder and request IDs in a single transaction: either every change is
+// applied or none are.
+func (r *Repository) SyncBatch(
+	ctx context.Context,
+	collections []*domain.Collection,
+	folders []*domain.Folder,
+	requests []*request.Request,
+	deleteFolderIDs []string,
+	deleteRequestIDs []string,
+) error {
 	if r == nil || r.db == nil {
 		return fmt.Errorf("collection repository is not initialized")
 	}
 	return sqlitestore.Tx(ctx, r.db, func(tx *sql.Tx) error {
+		for _, id := range deleteRequestIDs {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM requests WHERE id = ?`, id); err != nil {
+				return fmt.Errorf("delete removed request %q: %w", id, err)
+			}
+		}
+		for _, id := range deleteFolderIDs {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM folders WHERE id = ?`, id); err != nil {
+				return fmt.Errorf("delete removed folder %q: %w", id, err)
+			}
+		}
 		for _, col := range collections {
 			if err := saveCollection(ctx, tx, col); err != nil {
 				return fmt.Errorf("import collection %q: %w", nameOf(col), err)

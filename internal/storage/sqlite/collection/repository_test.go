@@ -147,3 +147,64 @@ func TestImportBatchRollsBackOnFailure(t *testing.T) {
 		t.Fatalf("rollback failed: collections = %+v", cols)
 	}
 }
+
+func TestSyncBatchUpdatesAndDeletes(t *testing.T) {
+	ctx := context.Background()
+	repo := colrepo.New(openDB(t))
+
+	col := collection.New("ws-1", "API")
+	keepFolder := collection.NewFolder(col.ID, "", "Users")
+	dropFolder := collection.NewFolder(col.ID, "", "Legacy")
+	keepReq := request.New("ws-1", "List", request.KindHTTP)
+	keepReq.CollectionID = col.ID
+	keepReq.FolderID = keepFolder.ID
+	keepReq.URL = "https://example.com/v1/users"
+	keepReq.Script = "env.set(\"keep\", \"1\")"
+
+	dropReq := request.New("ws-1", "Old", request.KindHTTP)
+	dropReq.CollectionID = col.ID
+	dropReq.FolderID = dropFolder.ID
+	dropReq.Script = "console.log(\"gone\")"
+
+	if err := repo.ImportBatch(ctx,
+		[]*collection.Collection{col},
+		[]*collection.Folder{keepFolder, dropFolder},
+		[]*request.Request{keepReq, dropReq},
+	); err != nil {
+		t.Fatalf("seed batch: %v", err)
+	}
+
+	keepReq.URL = "https://example.com/v2/users"
+	newReq := request.New("ws-1", "Create", request.KindHTTP)
+	newReq.CollectionID = col.ID
+	newReq.FolderID = keepFolder.ID
+
+	if err := repo.SyncBatch(ctx,
+		[]*collection.Collection{col},
+		[]*collection.Folder{keepFolder},
+		[]*request.Request{keepReq, newReq},
+		[]string{dropFolder.ID},
+		[]string{dropReq.ID},
+	); err != nil {
+		t.Fatalf("sync batch: %v", err)
+	}
+
+	folders, err := repo.ListFolders(ctx, col.ID)
+	if err != nil || len(folders) != 1 || folders[0].ID != keepFolder.ID {
+		t.Fatalf("folders = %+v err=%v", folders, err)
+	}
+	reqs, err := repo.ListRequests(ctx, "ws-1", col.ID, "")
+	if err != nil || len(reqs) != 2 {
+		t.Fatalf("requests = %+v err=%v", reqs, err)
+	}
+	gotKeep, err := repo.GetRequest(ctx, keepReq.ID)
+	if err != nil {
+		t.Fatalf("get kept request: %v", err)
+	}
+	if gotKeep.URL != "https://example.com/v2/users" || gotKeep.Script != keepReq.Script {
+		t.Fatalf("kept request = %+v", gotKeep)
+	}
+	if _, err := repo.GetRequest(ctx, dropReq.ID); err == nil {
+		t.Fatal("expected deleted request to be gone")
+	}
+}

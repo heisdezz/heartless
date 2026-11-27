@@ -58,13 +58,95 @@ func (f *fakeStore) ListCollections(_ context.Context, _ string) ([]*domaincol.C
 	return f.existing, nil
 }
 
+func (f *fakeStore) ListFolders(_ context.Context, colID string) ([]*domaincol.Folder, error) {
+	var out []*domaincol.Folder
+	for _, fld := range f.folders {
+		if fld != nil && fld.CollectionID == colID {
+			out = append(out, fld)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListRequests(_ context.Context, _ string, colID, _ string) ([]*domainreq.Request, error) {
+	var out []*domainreq.Request
+	for _, r := range f.reqs {
+		if r != nil && r.CollectionID == colID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) ImportBatch(_ context.Context, cols []*domaincol.Collection, folders []*domaincol.Folder, reqs []*domainreq.Request) error {
+	return f.SyncBatch(context.Background(), cols, folders, reqs, nil, nil)
+}
+
+func (f *fakeStore) SyncBatch(_ context.Context, cols []*domaincol.Collection, folders []*domaincol.Folder, reqs []*domainreq.Request, deleteFolderIDs, deleteRequestIDs []string) error {
 	if f.batchErr != nil {
 		return f.batchErr
 	}
-	f.cols = append(f.cols, cols...)
-	f.folders = append(f.folders, folders...)
-	f.reqs = append(f.reqs, reqs...)
+	deletedFolders := make(map[string]bool, len(deleteFolderIDs))
+	for _, id := range deleteFolderIDs {
+		deletedFolders[id] = true
+	}
+	deletedReqs := make(map[string]bool, len(deleteRequestIDs))
+	for _, id := range deleteRequestIDs {
+		deletedReqs[id] = true
+	}
+	keepFolders := f.folders[:0]
+	for _, fld := range f.folders {
+		if fld != nil && !deletedFolders[fld.ID] {
+			keepFolders = append(keepFolders, fld)
+		}
+	}
+	f.folders = keepFolders
+	keepReqs := f.reqs[:0]
+	for _, r := range f.reqs {
+		if r != nil && !deletedReqs[r.ID] {
+			keepReqs = append(keepReqs, r)
+		}
+	}
+	f.reqs = keepReqs
+
+	upsertCol := func(c *domaincol.Collection) {
+		for i, ex := range f.cols {
+			if ex != nil && ex.ID == c.ID {
+				f.cols[i] = c
+				return
+			}
+		}
+		f.cols = append(f.cols, c)
+	}
+	for _, c := range cols {
+		upsertCol(c)
+	}
+	for _, fld := range folders {
+		replaced := false
+		for i, ex := range f.folders {
+			if ex != nil && ex.ID == fld.ID {
+				f.folders[i] = fld
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			f.folders = append(f.folders, fld)
+		}
+	}
+	for _, r := range reqs {
+		replaced := false
+		for i, ex := range f.reqs {
+			if ex != nil && ex.ID == r.ID {
+				f.reqs[i] = r
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			f.reqs = append(f.reqs, r)
+		}
+	}
 	return nil
 }
 
@@ -296,4 +378,172 @@ func resultHasIssue(res *Result, severity, contains string) bool {
 		}
 	}
 	return false
+}
+
+func TestInspectConflicts(t *testing.T) {
+	store := &fakeStore{
+		existing: []*domaincol.Collection{domaincol.New("ws-1", "API")},
+	}
+	svc := newTestService(store)
+
+	info, err := svc.Inspect(context.Background(), "ws-1", []byte(postmanDoc))
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if info.Format != core.FormatPostman {
+		t.Fatalf("format = %q", info.Format)
+	}
+	if len(info.ExistingCollections) != 1 || info.ExistingCollections[0] != "API" {
+		t.Fatalf("existing collections = %v, want [API]", info.ExistingCollections)
+	}
+
+	// Without conflict, ExistingCollections is empty.
+	clean := newTestService(&fakeStore{})
+	info, err = clean.Inspect(context.Background(), "ws-1", []byte(postmanDoc))
+	if err != nil {
+		t.Fatalf("inspect clean: %v", err)
+	}
+	if len(info.ExistingCollections) != 0 {
+		t.Fatalf("expected no conflicts, got %v", info.ExistingCollections)
+	}
+}
+
+func TestImportConflictMergePreservesScriptsUnlessRemoved(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, sqlitestore.Config{Path: filepath.Join(t.TempDir(), "merge.db")})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	wsr := wsrepo.New(db)
+	ws := domainws.NewWorkspace("Main")
+	if err := wsr.Save(ctx, ws); err != nil {
+		t.Fatalf("save workspace: %v", err)
+	}
+	repo := colrepo.New(db)
+	svc := New(Deps{Workspaces: wsr, Collections: repo})
+
+	initialDoc := `{
+	  "info": {"name": "API", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+	  "item": [
+	    {"name": "Users", "item": [
+	      {"name": "List", "request": {"method": "GET", "url": "https://x/v1/users"}},
+	      {"name": "Legacy", "request": {"method": "DELETE", "url": "https://x/v1/legacy"}}
+	    ]},
+	    {"name": "OldFolder", "item": [
+	      {"name": "OldReq", "request": {"method": "GET", "url": "https://x/v1/old"}}
+	    ]},
+	    {"name": "Health", "request": {"method": "GET", "url": "https://x/v1/health"}}
+	  ]
+	}`
+
+	firstRes, err := svc.Import(ctx, ws.ID, []byte(initialDoc), Options{})
+	if err != nil {
+		t.Fatalf("initial import: %v", err)
+	}
+	colID := firstRes.CreatedIDs[0]
+
+	// Set post-response scripts on both kept and removed requests, plus custom auth on a kept request.
+	reqs, err := repo.ListRequests(ctx, ws.ID, colID, "")
+	if err != nil {
+		t.Fatalf("list requests: %v", err)
+	}
+	byName := map[string]*domainreq.Request{}
+	for _, r := range reqs {
+		byName[r.Name] = r
+	}
+	byName["List"].Script = `env.set("users_ok", "true");`
+	byName["List"].Auth = domainreq.Auth{Type: domainreq.AuthBearer, Token: "tok-1"}
+	byName["Health"].Script = `test("ok", () => {});`
+	byName["Legacy"].Script = `console.log("legacy");`
+	byName["OldReq"].Script = `console.log("old");`
+	for _, r := range []*domainreq.Request{byName["List"], byName["Health"], byName["Legacy"], byName["OldReq"]} {
+		if err := repo.SaveRequest(ctx, r); err != nil {
+			t.Fatalf("save script on %s: %v", r.Name, err)
+		}
+	}
+
+	listID := byName["List"].ID
+	healthID := byName["Health"].ID
+	legacyID := byName["Legacy"].ID
+	oldReqID := byName["OldReq"].ID
+
+	updatedDoc := `{
+	  "info": {"name": "API", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+	  "item": [
+	    {"name": "Users", "item": [
+	      {"name": "List", "request": {"method": "POST", "header": [{"key": "X-Ver", "value": "2"}], "url": "https://x/v2/users"}},
+	      {"name": "Create", "request": {"method": "POST", "url": "https://x/v2/users"}}
+	    ]},
+	    {"name": "Orders", "item": [
+	      {"name": "GetOrder", "request": {"method": "GET", "url": "https://x/v2/orders/1"}}
+	    ]},
+	    {"name": "Health", "request": {"method": "GET", "url": "https://x/v2/health"}}
+	  ]
+	}`
+
+	mergeRes, err := svc.Import(ctx, ws.ID, []byte(updatedDoc), Options{Conflicts: ConflictMerge})
+	if err != nil {
+		t.Fatalf("merge import: %v", err)
+	}
+	if len(mergeRes.MergedIDs) != 1 || mergeRes.MergedIDs[0] != colID {
+		t.Fatalf("merged IDs = %v, want [%s]", mergeRes.MergedIDs, colID)
+	}
+	if len(mergeRes.CreatedIDs) != 0 {
+		t.Fatalf("created IDs = %v, want empty", mergeRes.CreatedIDs)
+	}
+	if mergeRes.DeletedRequests != 2 || mergeRes.DeletedFolders != 1 {
+		t.Fatalf("deleted counts = %d reqs / %d folders, want 2/1", mergeRes.DeletedRequests, mergeRes.DeletedFolders)
+	}
+
+	cols, err := repo.ListCollections(ctx, ws.ID)
+	if err != nil || len(cols) != 1 || cols[0].ID != colID {
+		t.Fatalf("collections = %+v err=%v", cols, err)
+	}
+
+	afterReqs, err := repo.ListRequests(ctx, ws.ID, colID, "")
+	if err != nil {
+		t.Fatalf("list requests after merge: %v", err)
+	}
+	afterByName := map[string]*domainreq.Request{}
+	for _, r := range afterReqs {
+		afterByName[r.Name] = r
+	}
+	if len(afterByName) != 4 {
+		t.Fatalf("request count = %d, want 4", len(afterByName))
+	}
+
+	// Kept requests keep their IDs, scripts, and custom auth while updating URL/method/headers.
+	gotList := afterByName["List"]
+	if gotList == nil || gotList.ID != listID {
+		t.Fatalf("List ID changed: %+v, want %s", gotList, listID)
+	}
+	if gotList.Script != `env.set("users_ok", "true");` {
+		t.Fatalf("List script broken: %q", gotList.Script)
+	}
+	if gotList.Auth.Token != "tok-1" {
+		t.Fatalf("List auth lost: %+v", gotList.Auth)
+	}
+	if gotList.Method != "POST" || gotList.URL != "https://x/v2/users" || gotList.Headers["X-Ver"] != "2" {
+		t.Fatalf("List fields not updated: %+v", gotList)
+	}
+
+	gotHealth := afterByName["Health"]
+	if gotHealth == nil || gotHealth.ID != healthID || gotHealth.Script != `test("ok", () => {});` || gotHealth.URL != "https://x/v2/health" {
+		t.Fatalf("Health after merge = %+v", gotHealth)
+	}
+
+	// Removed requests (and their scripts) are deleted.
+	if _, err := repo.GetRequest(ctx, legacyID); err == nil {
+		t.Fatalf("expected removed request Legacy (%s) to be deleted", legacyID)
+	}
+	if _, err := repo.GetRequest(ctx, oldReqID); err == nil {
+		t.Fatalf("expected removed request OldReq (%s) to be deleted", oldReqID)
+	}
+
+	// New requests and folders exist.
+	if afterByName["Create"] == nil || afterByName["GetOrder"] == nil {
+		t.Fatalf("missing newly added requests: %+v", afterByName)
+	}
 }

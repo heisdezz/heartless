@@ -2,6 +2,7 @@ package screens
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -12,6 +13,7 @@ import (
 
 	"heartless/internal/app"
 	domainws "heartless/internal/domain/workspace"
+	impsvc "heartless/internal/services/importer"
 )
 
 // workspaceDialog shows the workspace and environment chooser.
@@ -189,4 +191,66 @@ func importCollectionModal(c *ui.Context, st *shellState, services *app.Services
 	}) {
 		// NoFooter: no default actions.
 	}
+}
+
+// importConflictModal asks whether an already-existing collection should be
+// merged in place (preserving set scripts on kept requests) or added as a copy.
+func importConflictModal(c *ui.Context, st *shellState, services *app.Services) {
+	if feedback.Modal(c, &st.showImportConflict, feedback.ModalProps{
+		Title:    "Collection already exists",
+		Width:    480,
+		NoFooter: true,
+	}, func() {
+		tk := theme.TokensOf(c)
+		ui.Column(c).Gap(12).AlignSelf(ui.Stretch).Children(func() {
+			ui.Text(c, importConflictMessage(st.importConflictNames)).
+				FontSize(textSize(c, 13)).TextColor(tk.TextSecondary)
+			ui.Text(c, "Merging updates the existing collection and preserves set scripts unless a request is removed.").
+				FontSize(textSize(c, 12)).TextColor(tk.TextTertiary)
+
+			if st.importConflictErr != "" {
+				ui.Text(c, st.importConflictErr).FontSize(textSize(c, 12)).TextColor(tk.Error)
+			}
+
+			ui.Row(c).Gap(8).Justify(ui.End).AlignSelf(ui.Stretch).Padding(4, 0, 0, 0).Children(func() {
+				cancelBtn := action.Button(c, "Cancel", action.ButtonProps{})
+				copyBtn := action.Button(c, "Add copy", action.ButtonProps{})
+				mergeBtn := action.Button(c, "Merge", action.ButtonProps{Variant: action.Primary})
+				if st.importCollectionBusy {
+					cancelBtn.Disabled(true).Opacity(0.5)
+					copyBtn.Disabled(true).Opacity(0.5)
+					mergeBtn.Disabled(true).Opacity(0.5)
+					return
+				}
+				if cancelBtn.Clicked() {
+					st.cancelImportConflict()
+				}
+				if copyBtn.Clicked() {
+					st.resolveImportConflict(services, impsvc.ConflictRename)
+				}
+				if mergeBtn.Clicked() {
+					st.resolveImportConflict(services, impsvc.ConflictMerge)
+				}
+			})
+		})
+	}) {
+		// NoFooter: actions handled in the modal body.
+	}
+	if !st.showImportConflict && !st.importCollectionBusy && len(st.pendingImportData) > 0 {
+		st.cancelImportConflict()
+	}
+}
+
+func importConflictMessage(names []string) string {
+	if len(names) == 0 {
+		return "A collection with this name already exists in this workspace. Do you want to merge it or add a copy?"
+	}
+	if len(names) == 1 {
+		return fmt.Sprintf("Collection %q already exists in this workspace. Do you want to merge it or add a copy?", names[0])
+	}
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf("%q", name)
+	}
+	return fmt.Sprintf("Collections %s already exist in this workspace. Do you want to merge them or add copies?", strings.Join(quoted, ", "))
 }

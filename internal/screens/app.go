@@ -139,6 +139,11 @@ type shellState struct {
 	importCollectionErr  string
 	importCollectionBusy bool
 
+	showImportConflict  bool
+	importConflictNames []string
+	importConflictErr   string
+	pendingImportData   []byte
+
 	// selectedRequestID and the request editor states live below.
 	selectedRequestID string
 	renameRequestID   string
@@ -928,6 +933,7 @@ func App(c *ui.Context, services *app.Services) {
 		createWorkspaceModal(c, st, services)
 		createEnvironmentModal(c, st, services)
 		importCollectionModal(c, st, services)
+		importConflictModal(c, st, services)
 	})
 }
 
@@ -1176,6 +1182,7 @@ func (s *shellState) openImportCollection() {
 	s.importCollectionErr = ""
 	s.importCollectionBusy = false
 	s.showImportCollection = true
+	s.cancelImportConflict()
 }
 
 func (s *shellState) importCollectionFromURL(services *app.Services, rawURL string) {
@@ -1223,16 +1230,123 @@ func (s *shellState) importCollectionData(services *app.Services, data []byte) {
 	s.importCollectionBusy = true
 	s.importCollectionErr = ""
 	svc := impsvc.New(impsvc.Deps{Workspaces: services.Workspaces, Collections: services.Collections})
-	_, err := svc.Import(context.Background(), s.workspaceID, data, impsvc.Options{})
+	info, err := svc.Inspect(context.Background(), s.workspaceID, data)
 	if err != nil {
 		s.importCollectionErr = err.Error()
 		s.importCollectionBusy = false
 		return
 	}
+	if len(info.ExistingCollections) > 0 {
+		s.importCollectionBusy = false
+		s.pendingImportData = append([]byte(nil), data...)
+		s.importConflictNames = info.ExistingCollections
+		s.importConflictErr = ""
+		s.showImportCollection = false
+		s.showImportConflict = true
+		return
+	}
+	s.finishImportCollection(services, svc, data, impsvc.ConflictRename)
+}
+
+func (s *shellState) resolveImportConflict(services *app.Services, policy impsvc.ConflictPolicy) {
+	if services == nil || s.workspaceID == "" || len(s.pendingImportData) == 0 {
+		s.cancelImportConflict()
+		return
+	}
+	s.importCollectionBusy = true
+	s.importConflictErr = ""
+	svc := impsvc.New(impsvc.Deps{Workspaces: services.Workspaces, Collections: services.Collections})
+	s.finishImportCollection(services, svc, s.pendingImportData, policy)
+}
+
+func (s *shellState) cancelImportConflict() {
+	s.showImportConflict = false
+	s.importConflictNames = nil
+	s.importConflictErr = ""
+	s.pendingImportData = nil
+}
+
+func (s *shellState) finishImportCollection(services *app.Services, svc *impsvc.Service, data []byte, policy impsvc.ConflictPolicy) {
+	res, err := svc.Import(context.Background(), s.workspaceID, data, impsvc.Options{Conflicts: policy})
+	if err != nil {
+		s.importCollectionErr = err.Error()
+		s.importConflictErr = err.Error()
+		s.importCollectionBusy = false
+		return
+	}
 	s.importCollectionBusy = false
 	s.showImportCollection = false
+	s.showImportConflict = false
 	s.importCollectionURL = ""
+	s.pendingImportData = nil
+	s.importConflictNames = nil
+	s.importConflictErr = ""
 	if err := s.reloadTree(context.Background(), services); err != nil {
 		s.err = err.Error()
+		return
+	}
+	s.applyImportResultToState(res)
+}
+
+func (s *shellState) applyImportResultToState(res *impsvc.Result) {
+	if res == nil {
+		return
+	}
+	for _, id := range res.CreatedIDs {
+		s.setExpanded(id, true)
+	}
+	for _, id := range res.MergedIDs {
+		s.setExpanded(id, true)
+	}
+	for _, id := range res.DeletedRequestIDs {
+		delete(s.requestStates, id)
+		if s.selectedRequestID == id {
+			s.selectedRequestID = ""
+		}
+		if s.renameRequestID == id {
+			s.renameRequestID = ""
+		}
+	}
+	if len(res.DeletedRequestIDs) > 0 {
+		mu.Lock()
+		for _, id := range res.DeletedRequestIDs {
+			delete(s.requestsWithResponses, id)
+		}
+		mu.Unlock()
+	}
+	if len(res.MergedIDs) == 0 || len(s.requestStates) == 0 {
+		return
+	}
+	mergedCols := make(map[string]bool, len(res.MergedIDs))
+	for _, id := range res.MergedIDs {
+		mergedCols[id] = true
+	}
+	for id, rs := range s.requestStates {
+		if rs == nil {
+			continue
+		}
+		req, ok := s.requestByID(id)
+		if !ok || !mergedCols[req.CollectionID] {
+			continue
+		}
+		method := req.Method
+		if method == "" {
+			method = "GET"
+		}
+		bodyType := req.BodyType
+		if bodyType == "" {
+			bodyType = string(domainreq.BodyNone)
+		}
+		mu.Lock()
+		rs.Method = method
+		rs.URL = req.URL
+		rs.Body = req.Body
+		rs.BodyType = bodyType
+		rs.Script = req.Script
+		rs.Params = paramsToRows(req.Params)
+		rs.Headers = paramsToRows(req.Headers)
+		rs.Form = paramsToRows(req.Form)
+		rs.Auth = req.Auth
+		mu.Unlock()
 	}
 }
